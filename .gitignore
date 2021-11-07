@@ -1,0 +1,7 @@
+# Compilation
+/build/
+/mash
+
+# clangd
+/.cache/
+/compile_commands.json
