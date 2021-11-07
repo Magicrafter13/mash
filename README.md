@@ -9,13 +9,16 @@ Not necessarily trying to bring any unique features to the table, I just want to
 
 - Allow quoting (currently ***all*** spaces are treated as delimiters)
 - Adding/Setting/Removing environment variables
+- Handle arrow keys (nobody wants their arrow keys to print `^[[A`, they want them to do actions)
 
 ## Behind the Scenes
 
-- Read environment variables on startup, and pass them to programs
-- Create/read $XDG\_CONFIG\_HOME/mash/config.mash
+- Create `$XDG\_CONFIG\_HOME/mash/config.mash`?
 
 ## Code Improvements
 
 - Command data structure
-- Environment variable dictionary using binary search tree (still store in array, but use this to easily find its location if it exists)
+
+# Misc
+An idea I had before finding out about `environ`(7):  
+Environment variable dictionary using binary search tree (still store in array, but use this to easily find its location if it exists)
