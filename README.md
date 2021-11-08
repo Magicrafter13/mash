@@ -8,7 +8,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 ## Command Parser
 
 - Allow quoting (currently ***all*** spaces are treated as delimiters)
-- Adding/Setting/Removing environment variables
+- Removing environment variables
 - Handle arrow keys (nobody wants their arrow keys to print `^[[A`, they want them to do actions)
 
 ## Behind the Scenes

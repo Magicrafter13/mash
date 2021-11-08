@@ -2,6 +2,7 @@
 #define COMMAND_H
 
 #include <stdio.h>
+#include "suftree.h"
 
 enum _command_type {
 	CMD_UNKNOWN,
@@ -16,9 +17,12 @@ struct _command {
 	int c_argc;
 	char ** c_argv;
 	enum _command_type c_type;
+	size_t c_builtin;
 };
 
 typedef struct _command Command;
+
+void commandSetBuiltins(SufTree*);
 
 Command commandInit();
 

@@ -9,13 +9,33 @@
 #include <sys/wait.h>
 #include <inttypes.h>
 
+#include "suftree.h"
 #include "command.h"
+
+uint8_t export(size_t, char**), help(size_t, char**);
+
+#define BUILTIN_COUNT 2
+
+char * const BUILTIN[BUILTIN_COUNT] = {
+	"export",
+	"help"
+};
+
+uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, char**) = {
+	export,
+	help
+};
 
 extern char ** environ;
 
 int main(int argc, char * argv[]) {
 	// Initialize
-	const uid_t UID = getuid();
+	SufTree builtins = suftreeInit(BUILTIN[0], 0);
+	for (size_t b = 1; b < BUILTIN_COUNT; b++)
+		suftreeAdd(&builtins, BUILTIN[b], b);
+	commandSetBuiltins(&builtins);
+
+	const uid_t UID = getuid(); // Source config
 	struct passwd * PASSWD = getpwuid(UID);
 	char * config_file, * temp = getenv("XDG_CONFIG_HOME");
 	if (temp == NULL) {
@@ -49,6 +69,9 @@ int main(int argc, char * argv[]) {
 			if (errno > 11) {
 				int err = errno;
 				free(cmd.c_buf);
+				suftreeFree(builtins.sf_gt);
+				suftreeFree(builtins.sf_eq);
+				suftreeFree(builtins.sf_lt);
 				fprintf(stderr, "%s\n", strerror(err));
 				return err;
 			}
@@ -64,6 +87,11 @@ int main(int argc, char * argv[]) {
 		// Execute command
 		if (cmd.c_type == CMD_EMPTY)
 			continue;
+		if (cmd.c_type == CMD_BUILTIN) {
+			fprintf(stdout, "Executing builtin '%s'\n", BUILTIN[cmd.c_builtin]);
+			BUILTIN_FUNCTION[cmd.c_builtin](cmd.c_argc, cmd.c_argv);
+			continue;
+		}
 
 		cmd_pid = fork();
 		// Forked process will execute the command
@@ -88,7 +116,46 @@ int main(int argc, char * argv[]) {
 
 	free(config_file);
 
+	suftreeFree(builtins.sf_gt);
+	suftreeFree(builtins.sf_eq);
+	suftreeFree(builtins.sf_lt);
+
 	fprintf(stdout, "\n");
 
+	return 0;
+}
+
+uint8_t export(size_t argc, char *argv[]) {
+	if (argc < 2)
+		return 1;
+
+	size_t var_len;
+	int overwrite = 0;
+	for (var_len = 0; argv[1][var_len] != '\0'; var_len++) {
+		if (argv[1][var_len] == '=') {
+			overwrite = 1;
+			break;
+		}
+	}
+	if (!var_len)
+		return 1;
+
+	size_t val_len = strlen(&argv[1][var_len + 1]);
+	char variable[var_len + 1], value[val_len + 1];
+	strncpy(variable, argv[1], var_len);
+	variable[var_len] = '\0';
+	if (val_len)
+		strcpy(value, &argv[1][var_len + 1]);
+	value[val_len] = '\0';
+
+	if (setenv(variable, value, overwrite) == -1) {
+		fprintf(stderr, "%m\n");
+		return errno;
+	}
+	return 0;
+}
+
+uint8_t help(size_t argc, char *argv[]) {
+	fprintf(stdout, "Not implemented yet.\n");
 	return 0;
 }

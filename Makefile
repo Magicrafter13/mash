@@ -19,7 +19,6 @@ all: $(BUILD)
 	@$(MAKE) $(BUILD)/$(PROG) --no-print-directory
 	@ln -sf $(BUILD)/$(PROG) $(PROG)
 
-debug: CPPFLAGS += -g
 debug: $(DEBUG)
 	@$(MAKE) $(DEBUG)/$(PROG) --no-print-directory
 	@ln -sf $(DEBUG)/$(PROG) $(PROG)
@@ -33,6 +32,7 @@ clean:
 $(BUILD)/$(PROG): $(OBJS)
 	$(CC) $(LDLIBS) $^ -o $@
 
+$(DEBUG)/$(PROG): CPPFLAGS += -g
 $(DEBUG)/$(PROG): $(D_OBJS)
 	$(CC) $(LDLIBS) $^ -o $@
 

@@ -4,6 +4,12 @@
 
 char * const delim_char = " ";
 
+SufTree * builtins;
+
+void commandSetBuiltins(SufTree *b) {
+	builtins = b;
+}
+
 Command commandInit() {
 	struct _command new_command;
 	new_command.c_size = 0;
@@ -37,7 +43,8 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 		cmd->c_argv[t] = strtok(NULL, delim_char);
 	cmd->c_argv[cmd->c_argc] = NULL;
 
-	cmd->c_type = CMD_REGULAR;
+	// Determine command type
+	cmd->c_type = suftreeHas(builtins, cmd->c_argv[0], &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
 
 	return 0;
 }
