@@ -9,9 +9,9 @@
 #include <sys/wait.h>
 #include <inttypes.h>
 
-extern char ** environ;
+#include "command.h"
 
-char * const delim_char = " ";
+extern char ** environ;
 
 int main(int argc, char * argv[]) {
 	// Initialize
@@ -34,11 +34,7 @@ int main(int argc, char * argv[]) {
 
 	// User prompt (main loop)
 	// TODO make a struct for a command - can have an array of command history to call back on!
-	int cmd_type;
-	size_t cmd_length, cmd_true_length = 0;
-	char * cmd_buf = NULL;
-	int cmd_argc;
-	char ** cmd_argv;
+	Command cmd = commandInit();
 
 	pid_t cmd_pid;
 	int cmd_stat;
@@ -49,13 +45,14 @@ int main(int argc, char * argv[]) {
 		// Present prompt and read command
 		if (!source_config)
 			fprintf(stdout, "$ ");
-		if ((cmd_length = getline(&cmd_buf, &cmd_true_length, input_source)) == -1) {
-			int err = errno;
-			if (err > 11) {
-				free(cmd_buf);
+		if (commandRead(&cmd, input_source) == -1) {
+			if (errno > 11) {
+				int err = errno;
+				free(cmd.c_buf);
 				fprintf(stderr, "%s\n", strerror(err));
 				return err;
 			}
+			// EOF
 			if (source_config) {
 				source_config = 0;
 				input_source = stdin;
@@ -64,27 +61,15 @@ int main(int argc, char * argv[]) {
 			break;
 		}
 
-		// Parse input
-		if (cmd_buf[0] == '\n')              // Blank input, just ignore and print another prompt.
-			continue;
-		if (cmd_buf[cmd_length - 1] == '\n') // If final character is a new line, replace it with a null terminator
-			cmd_buf[cmd_length-- - 1] = '\0';
-		cmd_argc = 1;
-		for (size_t i = 0; i < cmd_length; i++)
-			if (cmd_buf[i] == delim_char[0])
-				cmd_argc++;
-		cmd_argv = calloc(cmd_argc + 1, sizeof (char*));
-		cmd_argv[0] = strtok(cmd_buf, delim_char);
-		for (size_t t = 1; t < cmd_argc; t++)
-			cmd_argv[t] = strtok(NULL, delim_char);
-		cmd_argv[cmd_argc] = NULL;
-
 		// Execute command
+		if (cmd.c_type == CMD_EMPTY)
+			continue;
+
 		cmd_pid = fork();
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
 			// TODO consider manual search of the path
-			execvp(cmd_argv[0], cmd_argv);
+			execvp(cmd.c_argv[0], cmd.c_argv);
 			fprintf(stderr, "%m\n");
 			exit(errno);
 		}
@@ -95,11 +80,11 @@ int main(int argc, char * argv[]) {
 			fprintf(stdout, "Command exited with %" PRIu8 ".\n", cmd_exit);
 		}
 
-		free(cmd_argv);
+		free(cmd.c_argv);
 	}
 
-	if (cmd_buf != NULL)
-		free(cmd_buf);
+	if (cmd.c_buf != NULL)
+		free(cmd.c_buf);
 
 	free(config_file);
 

@@ -15,52 +15,32 @@ CPPFLAGS = -c -I$(INCLUDE) -Wall
 LDFLAGS  =
 LDLIBS   =
 
-all:
+all: $(BUILD)
 	@$(MAKE) $(BUILD)/$(PROG) --no-print-directory
 	@ln -sf $(BUILD)/$(PROG) $(PROG)
 
 debug: CPPFLAGS += -g
-debug: $(D_OBJS)
+debug: $(DEBUG)
 	@$(MAKE) $(DEBUG)/$(PROG) --no-print-directory
 	@ln -sf $(DEBUG)/$(PROG) $(PROG)
 
 clean:
-	$(RM) $(PROG) $(OBJS) $(D_OBJS) $(BUILD)/.compile_*
+	$(RM) $(PROG) $(OBJS) $(D_OBJS) $(BUILD)/$(PROG) $(DEBUG)/$(PROG)
 	@/bin/echo -e '\e[1;32mClean...\e[0m'
 
 .PHONY: all clean debug
 
 $(BUILD)/$(PROG): $(OBJS)
-	$(CC) $(LDLIBS) $^ -o $@ # $^ is equivalent to $(OBJS)
+	$(CC) $(LDLIBS) $^ -o $@
 
 $(DEBUG)/$(PROG): $(D_OBJS)
-	$(CC) $(LDLIBS) $^ -o $@ # $^ is equivalent to $(OBJS)
+	$(CC) $(LDLIBS) $^ -o $@
 
-$(BUILD)/%.o: $(SOURCE)/%.c
+$(BUILD)/%.o $(DEBUG)/%.o: $(SOURCE)/%.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $< -o $@
 
-$(DEBUG)/%.o: $(SOURCE)/%.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) $< -o $@
-
-$(BUILD)/%.o: $(SOURCE)/%.cpp
+$(BUILD)/%.o $(DEBUG)/%.o: $(SOURCE)/%.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-$(DEBUG)/%.o: $(SOURCE)/%.cpp
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
-
-$(BUILD):
+$(BUILD) $(DEBUG):
 	mkdir -p $@
-
-$(BUILD)/.compile_normal: | $(BUILD)
-ifneq ("$(wildcard $(BUILD)/.compile_debug)", "")
-	@/bin/echo -e "\e[1;34mPreviously compiled with debug flags, recompiling...\e[0m"
-	$(MAKE) clean --no-print-directory
-endif
-	@touch $(BUILD)/.compile_normal
-
-$(BUILD)/.compile_debug: | $(BUILD)
-ifneq ("$(wildcard $(BUILD)/.compile_normal)", "")
-	@/bin/echo -e "\e[1;34mCode wasn't compiled with debug flags, recompiling...\e[0m"
-	$(MAKE) clean --no-print-directory
-endif
-	@touch $(BUILD)/.compile_debug

@@ -17,8 +17,6 @@ Not necessarily trying to bring any unique features to the table, I just want to
 
 ## Code Improvements
 
-- Command data structure
-
 # Misc
 An idea I had before finding out about `environ`(7):  
 Environment variable dictionary using binary search tree (still store in array, but use this to easily find its location if it exists)
