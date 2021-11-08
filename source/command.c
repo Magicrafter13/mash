@@ -24,7 +24,7 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 		return -1;
 
 	// Parse Input (into tokens)
-	if (cmd->c_buf[0] == '\n') { // Blank input, just ignore and print another prompt.
+	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 		cmd->c_type = CMD_EMPTY;
 		return 0;
 	}

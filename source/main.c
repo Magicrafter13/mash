@@ -16,7 +16,7 @@ uint8_t export(size_t, char**), help(size_t, char**);
 
 #define BUILTIN_COUNT 2
 
-char * const BUILTIN[BUILTIN_COUNT] = {
+char *const BUILTIN[BUILTIN_COUNT] = {
 	"export",
 	"help"
 };
@@ -26,31 +26,64 @@ uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, char**) = {
 	help
 };
 
-extern char ** environ;
+extern char **environ;
 
-int main(int argc, char * argv[]) {
+int main(int argc, char *argv[]) {
+	// Determine shell type
+	int login = argv[0][0] == '-';
+	fprintf(stdout, "This mash is %sa login shell.\n", login ? "" : "not ");
+
+	char *tty = ttyname(fileno(stdin));
+	if (tty == NULL && errno != ENOTTY) {
+		fprintf(stderr, "%m\n");
+		return errno;
+	}
+	int interactive = argc == 1 && tty != NULL, sourcing = 0;
+	fprintf(stdout, "This mash is %sinteractive.\n", interactive ? "" : "non-");
+
 	// Initialize
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
 	commandSetBuiltins(&builtins);
 
-	const uid_t UID = getuid(); // Source config
-	struct passwd * PASSWD = getpwuid(UID);
-	char * config_file, * temp = getenv("XDG_CONFIG_HOME");
-	if (temp == NULL) {
-		size_t len = strlen(PASSWD->pw_dir);
-		config_file = calloc(len + 32, sizeof (char));
-		strcpy(config_file, PASSWD->pw_dir);
-		strcpy(&config_file[len], "/.local/config/mash/config.mash");
+	FILE *input_source = stdin;
+
+	const uid_t UID = getuid();
+	struct passwd *PASSWD = getpwuid(UID);
+	char *config_file;
+	if (interactive) { // Source config
+		char *temp = getenv("XDG_CONFIG_HOME");
+		if (temp == NULL) {
+			size_t len = strlen(PASSWD->pw_dir);
+			config_file = calloc(len + 25, sizeof (char));
+			strcpy(config_file, PASSWD->pw_dir);
+			strcpy(&config_file[len], "/.config/mash/config.mash");
+		}
+		else {
+			size_t len = strlen(temp);
+			config_file = calloc(len + 17, sizeof (char));
+			strcpy(config_file, temp);
+			strcpy(&config_file[len], "/mash/config.mash");
+		}
+		if (access(config_file, R_OK) == 0) {
+			sourcing = 1;
+			input_source = fopen(config_file, "r");
+			if (input_source == NULL) {
+				fprintf(stderr, "%m\n");
+				return errno;
+			}
+		}
 	}
 	else {
-		size_t len = strlen(temp);
-		config_file = calloc(len + 17, sizeof (char));
-		strcpy(config_file, temp);
-		strcpy(&config_file[len], "/mash/config.mash");
+		if (argc > 1) {
+			input_source = fopen(argv[1], "r");
+			if (input_source == NULL) {
+				fprintf(stderr, "%m\n");
+				return errno;
+			}
+		}
 	}
-	int source_config = access(config_file, R_OK) == 0;
 
 	// User prompt (main loop)
 	// TODO make a struct for a command - can have an array of command history to call back on!
@@ -60,10 +93,9 @@ int main(int argc, char * argv[]) {
 	int cmd_stat;
 	uint8_t cmd_exit;
 
-	FILE * input_source = source_config ? fopen(config_file, "r") : stdin;
 	for (;;) {
 		// Present prompt and read command
-		if (!source_config)
+		if (interactive && !sourcing)
 			fprintf(stdout, "$ ");
 		if (commandRead(&cmd, input_source) == -1) {
 			if (errno > 11) {
@@ -76,11 +108,14 @@ int main(int argc, char * argv[]) {
 				return err;
 			}
 			// EOF
-			if (source_config) {
-				source_config = 0;
+			if (sourcing) {
+				sourcing = 0;
+				fclose(input_source);
 				input_source = stdin;
 				continue;
 			}
+			if (!interactive)
+				fclose(input_source);
 			break;
 		}
 
@@ -114,7 +149,8 @@ int main(int argc, char * argv[]) {
 	if (cmd.c_buf != NULL)
 		free(cmd.c_buf);
 
-	free(config_file);
+	if (interactive)
+		free(config_file);
 
 	suftreeFree(builtins.sf_gt);
 	suftreeFree(builtins.sf_eq);
@@ -122,7 +158,7 @@ int main(int argc, char * argv[]) {
 
 	fprintf(stdout, "\n");
 
-	return 0;
+	return cmd_exit;
 }
 
 uint8_t export(size_t argc, char *argv[]) {
