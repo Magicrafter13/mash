@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
 	commandSetBuiltins(&builtins);
+	commandSetVarFunc(&getenv);
 
 	FILE *input_source = stdin;
 

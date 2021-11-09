@@ -6,10 +6,16 @@ char * const delim_char = " ";
 
 SufTree * builtins;
 
-int commandTokenize(Command*);
+char *(*getVarFunc)(const char*);
+
+int commandTokenize(Command*, char*);
 
 void commandSetBuiltins(SufTree *b) {
 	builtins = b;
+}
+
+void commandSetVarFunc(char *(*func)(const char*)) {
+	getVarFunc = func;
 }
 
 Command commandInit() {
@@ -21,20 +27,23 @@ Command commandInit() {
 
 int commandRead(Command *cmd, FILE *restrict stream) {
 	// Read line
-	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, stream);
-	if (cmd->c_len == -1)
+	static char *temp_buf;
+	cmd->c_len = getline(&temp_buf, &(size_t){ 0 }, stream);
+	if (cmd->c_len == -1) {
+		free(temp_buf);
 		return -1;
+	}
 
 	// Parse Input (into tokens)
-	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
+	if (temp_buf[0] == '\n' || temp_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
+		free(temp_buf);
 		cmd->c_type = CMD_EMPTY;
 		return 0;
 	}
-
-	if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
-		cmd->c_buf[cmd->c_len-- - 1] = '\0';
-
-	commandTokenize(cmd);
+	if (temp_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
+		temp_buf[cmd->c_len-- - 1] = '\0';
+	commandTokenize(cmd, temp_buf); // Determine tokens and save them into cmd->c_argv
+	free(temp_buf); // Free the buffer we read into
 
 	// Determine command type
 	if (!strcmp(cmd->c_argv[0], "exit"))
@@ -45,31 +54,48 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 	return 0;
 }
 
-int commandTokenize(Command *cmd) {
+int commandTokenize(Command *cmd, char *buf) {
 	cmd->c_argc = 1; // Get maximum number of possible tokens
 	for (size_t i = 0; i < cmd->c_len; i++)
-		if (cmd->c_buf[i] == *delim_char)
+		if (buf[i] == *delim_char)
 			cmd->c_argc++;
-
-	size_t token_ends[cmd->c_argc];
-	cmd->c_argc = 0;
-	for (size_t i = 0; i <= cmd->c_len; i++) {
-		switch (cmd->c_buf[i]) {
-			case '\0':
-			case ' ': // can't use delim_char...
-				token_ends[cmd->c_argc++] = i;
-				break;
-			case '\'':
-				while (cmd->c_buf[++i] != '\'');
-				token_ends[cmd->c_argc++] = i;
-				break;
-		}
-	}
 
 	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (char*));
 	cmd->c_argv[cmd->c_argc] = NULL;
 
-	size_t i = 0;
+	cmd->c_argc = 0;
+	char temp_buf[512];
+	for (size_t i = 0, j = 0, k; i <= cmd->c_len; i++) {
+		switch (buf[i]) {
+			case ' ': // can't use delim_char...
+				buf[i] = '\0';
+			case '\0':
+				if (i == j) {
+					j = i + 1;
+					continue;
+				}
+				cmd->c_argv[cmd->c_argc++] = strndup(&buf[j], i - j);
+				j = i + 1;
+				break;
+			case '\'':
+				k = i;
+				while (buf[++i] != '\'');
+				cmd->c_argv[cmd->c_argc++] = strndup(&buf[k + 1], i - k - 1);
+				j = i + 1;
+				break;
+			case '$':
+				k = ++i;
+				while (buf[i] != ' ' && buf[i] != '\0')
+					i++;
+				buf[i] = '\0';
+				char *value = getVarFunc(&buf[k]);
+				cmd->c_argv[cmd->c_argc++] = strdup(value == NULL ? "" : value);
+				j = i + 1;
+				break;
+		}
+	}
+
+	/*size_t i = 0;
 	for (size_t t = 0; t < cmd->c_argc; t++) {
 		switch (cmd->c_buf[i]) {
 			case '\'':
@@ -82,7 +108,7 @@ int commandTokenize(Command *cmd) {
 				break;
 		}
 		i = token_ends[t] + 1;
-	}
+	}*/
 
 	return 0;
 }

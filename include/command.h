@@ -25,6 +25,8 @@ typedef struct _command Command;
 
 void commandSetBuiltins(SufTree*);
 
+void commandSetVarFunc(char *(*)(const char*));
+
 Command commandInit();
 
 int commandRead(Command*, FILE*);
