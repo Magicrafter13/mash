@@ -31,15 +31,12 @@ extern char **environ;
 int main(int argc, char *argv[]) {
 	// Determine shell type
 	int login = argv[0][0] == '-';
-	fprintf(stdout, "This mash is %sa login shell.\n", login ? "" : "not ");
+	fprintf(stderr, "This mash is %sa login shell.\n", login ? "" : "not ");
+	fflush(stderr);
 
-	char *tty = ttyname(fileno(stdin));
-	if (tty == NULL && errno != ENOTTY) {
-		fprintf(stderr, "%m\n");
-		return errno;
-	}
-	int interactive = argc == 1 && tty != NULL, sourcing = 0;
-	fprintf(stdout, "This mash is %sinteractive.\n", interactive ? "" : "non-");
+	int interactive = argc == 1 && isatty(fileno(stdin)), sourcing = 0;
+	fprintf(stderr, "This mash is %sinteractive.\n", interactive ? "" : "non-");
+	fflush(stderr);
 
 	// Initialize
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
@@ -71,6 +68,7 @@ int main(int argc, char *argv[]) {
 			input_source = fopen(config_file, "r");
 			if (input_source == NULL) {
 				fprintf(stderr, "%m\n");
+				fflush(stderr);
 				return errno;
 			}
 		}
@@ -80,6 +78,7 @@ int main(int argc, char *argv[]) {
 			input_source = fopen(argv[1], "r");
 			if (input_source == NULL) {
 				fprintf(stderr, "%m\n");
+				fflush(stderr);
 				return errno;
 			}
 		}
@@ -96,7 +95,8 @@ int main(int argc, char *argv[]) {
 	for (;;) {
 		// Present prompt and read command
 		if (interactive && !sourcing)
-			fprintf(stdout, "$ ");
+			fprintf(stderr, "$ ");
+		fflush(stderr);
 		if (commandRead(&cmd, input_source) == -1) {
 			if (errno > 11) {
 				int err = errno;
@@ -105,6 +105,7 @@ int main(int argc, char *argv[]) {
 				suftreeFree(builtins.sf_eq);
 				suftreeFree(builtins.sf_lt);
 				fprintf(stderr, "%s\n", strerror(err));
+				fflush(stderr);
 				return err;
 			}
 			// EOF
@@ -123,7 +124,8 @@ int main(int argc, char *argv[]) {
 		if (cmd.c_type == CMD_EMPTY)
 			continue;
 		if (cmd.c_type == CMD_BUILTIN) {
-			fprintf(stdout, "Executing builtin '%s'\n", BUILTIN[cmd.c_builtin]);
+			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd.c_builtin]);
+			fflush(stderr);
 			BUILTIN_FUNCTION[cmd.c_builtin](cmd.c_argc, cmd.c_argv);
 			continue;
 		}
@@ -134,13 +136,17 @@ int main(int argc, char *argv[]) {
 			// TODO consider manual search of the path
 			execvp(cmd.c_argv[0], cmd.c_argv);
 			fprintf(stderr, "%m\n");
+			fflush(stderr);
 			exit(errno);
 		}
 		// While the main process waits for the child to exit
 		else {
 			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
-			fprintf(stdout, "Command exited with %" PRIu8 ".\n", cmd_exit);
+			if (interactive && !sourcing) {
+				fprintf(stderr, "Command exited with %" PRIu8 ".\n", cmd_exit);
+				fflush(stderr);
+			}
 		}
 
 		free(cmd.c_argv);
@@ -156,8 +162,11 @@ int main(int argc, char *argv[]) {
 	suftreeFree(builtins.sf_eq);
 	suftreeFree(builtins.sf_lt);
 
-	fprintf(stdout, "\n");
+	fprintf(stderr, "\n");
+	fflush(stderr);
 
+	/*if (!interactive)
+		fclose(stdout);*/
 	return cmd_exit;
 }
 
@@ -186,12 +195,14 @@ uint8_t export(size_t argc, char *argv[]) {
 
 	if (setenv(variable, value, overwrite) == -1) {
 		fprintf(stderr, "%m\n");
+		fflush(stderr);
 		return errno;
 	}
 	return 0;
 }
 
 uint8_t help(size_t argc, char *argv[]) {
-	fprintf(stdout, "Not implemented yet.\n");
+	fprintf(stderr, "Not implemented yet.\n");
+	fflush(stderr);
 	return 0;
 }
