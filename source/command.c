@@ -36,19 +36,11 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 
 	commandTokenize(cmd);
 
-	/*cmd->c_argc = 1; // Get number of tokens
-	for (size_t i = 0; i < cmd->c_len; i++)
-		if (cmd->c_buf[i] == delim_char[0])
-			cmd->c_argc++;
-
-	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (char*)); // Construct argument array
-	cmd->c_argv[0] = strtok(cmd->c_buf, delim_char);
-	for (size_t t = 1; t < cmd->c_argc; t++)
-		cmd->c_argv[t] = strtok(NULL, delim_char);
-	cmd->c_argv[cmd->c_argc] = NULL;*/
-
 	// Determine command type
-	cmd->c_type = suftreeHas(builtins, cmd->c_argv[0], &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
+	if (!strcmp(cmd->c_argv[0], "exit"))
+		cmd->c_type = CMD_EXIT;
+	else
+		cmd->c_type = suftreeHas(builtins, cmd->c_argv[0], &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
 
 	return 0;
 }

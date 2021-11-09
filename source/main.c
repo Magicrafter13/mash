@@ -123,6 +123,19 @@ int main(int argc, char *argv[]) {
 		// Execute command
 		if (cmd.c_type == CMD_EMPTY)
 			continue;
+		if (cmd.c_type == CMD_EXIT) {
+			if (cmd.c_argc > 1) {
+				int temp;
+				sscanf(cmd.c_argv[1], "%u", &temp);
+				cmd_exit = temp % 256;
+			}
+			else
+				cmd_exit = 0;
+			if (!sourcing)
+				break;
+			fseek(input_source, 0, SEEK_END);
+			continue;
+		}
 		if (cmd.c_type == CMD_BUILTIN) {
 			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd.c_builtin]);
 			fflush(stderr);

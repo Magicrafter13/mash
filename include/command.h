@@ -8,7 +8,8 @@ enum _command_type {
 	CMD_UNKNOWN,
 	CMD_REGULAR,
 	CMD_EMPTY,
-	CMD_BUILTIN
+	CMD_BUILTIN,
+	CMD_EXIT
 };
 
 struct _command {
