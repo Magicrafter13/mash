@@ -1,13 +1,14 @@
-#include <unistd.h>
-#include <sys/types.h>
-#include <pwd.h>
-#include <sys/stat.h>
-#include <stdio.h>
 #include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/wait.h>
 #include <inttypes.h>
+#include <pwd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "suftree.h"
 #include "command.h"
@@ -39,6 +40,7 @@ int main(int argc, char *argv[]) {
 	fflush(stderr);
 
 	// Initialize
+	srandom(time(NULL));
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);

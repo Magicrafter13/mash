@@ -88,8 +88,15 @@ int commandTokenize(Command *cmd, char *buf) {
 				while (buf[i] != ' ' && buf[i] != '\0')
 					i++;
 				buf[i] = '\0';
-				char *value = getVarFunc(&buf[k]);
-				cmd->c_argv[cmd->c_argc++] = strdup(value == NULL ? "" : value);
+				if (!strcmp(&buf[k], "RANDOM")) {
+					char number[12];
+					sprintf(number, "%lu", random());
+					cmd->c_argv[cmd->c_argc++] = strdup(number);
+				}
+				else {
+					char *value = getVarFunc(&buf[k]);
+					cmd->c_argv[cmd->c_argc++] = strdup(value == NULL ? "" : value);
+				}
 				j = i + 1;
 				break;
 		}
