@@ -19,6 +19,7 @@ struct _command {
 	char ** c_argv;
 	enum _command_type c_type;
 	size_t c_builtin;
+	struct _command * c_next;
 };
 
 typedef struct _command Command;
@@ -30,5 +31,7 @@ void commandSetVarFunc(char *(*)(const char*));
 Command commandInit();
 
 int commandRead(Command*, FILE*);
+
+void commandFree(Command*);
 
 #endif

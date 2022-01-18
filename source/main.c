@@ -13,18 +13,20 @@
 #include "suftree.h"
 #include "command.h"
 
-uint8_t export(size_t, char**), help(size_t, char**);
+uint8_t export(size_t, void**), help(size_t, void**), mash_if(size_t, void**);
 
-#define BUILTIN_COUNT 2
+#define BUILTIN_COUNT 3
 
 char *const BUILTIN[BUILTIN_COUNT] = {
 	"export",
-	"help"
+	"help",
+	"if"
 };
 
-uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, char**) = {
+uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 	export,
-	help
+	help,
+	mash_if
 };
 
 extern char **environ;
@@ -96,31 +98,40 @@ int main(int argc, char *argv[]) {
 	uint8_t cmd_exit;
 
 	for (;;) {
-		// Present prompt and read command
-		if (interactive && !sourcing)
-			fprintf(stderr, "$ ");
-		fflush(stderr);
-		if (commandRead(&cmd, input_source) == -1) {
-			if (errno > 11) {
-				int err = errno;
-				free(cmd.c_buf);
-				suftreeFree(builtins.sf_gt);
-				suftreeFree(builtins.sf_eq);
-				suftreeFree(builtins.sf_lt);
-				fprintf(stderr, "%s\n", strerror(err));
-				fflush(stderr);
-				return err;
+		if (cmd.c_next != NULL) {
+			free(cmd.c_buf);
+			Command *next = cmd.c_next;
+			cmd = *next;
+			free(next);
+		}
+		else {
+			// Present prompt and read command
+			if (interactive && !sourcing)
+				fprintf(stderr, "$ ");
+			fflush(stderr);
+
+			if (commandRead(&cmd, input_source) == -1) {
+				if (errno > 11) {
+					int err = errno;
+					free(cmd.c_buf);
+					suftreeFree(builtins.sf_gt);
+					suftreeFree(builtins.sf_eq);
+					suftreeFree(builtins.sf_lt);
+					fprintf(stderr, "%s\n", strerror(err));
+					fflush(stderr);
+					return err;
+				}
+				// EOF
+				if (sourcing) {
+					sourcing = 0;
+					fclose(input_source);
+					input_source = stdin;
+					continue;
+				}
+				if (!interactive)
+					fclose(input_source);
+				break;
 			}
-			// EOF
-			if (sourcing) {
-				sourcing = 0;
-				fclose(input_source);
-				input_source = stdin;
-				continue;
-			}
-			if (!interactive)
-				fclose(input_source);
-			break;
 		}
 
 		// Execute command
@@ -142,7 +153,7 @@ int main(int argc, char *argv[]) {
 		if (cmd.c_type == CMD_BUILTIN) {
 			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd.c_builtin]);
 			fflush(stderr);
-			BUILTIN_FUNCTION[cmd.c_builtin](cmd.c_argc, cmd.c_argv);
+			BUILTIN_FUNCTION[cmd.c_builtin](cmd.c_argc, (void**)cmd.c_argv);
 			continue;
 		}
 
@@ -160,8 +171,10 @@ int main(int argc, char *argv[]) {
 			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
 			if (interactive && !sourcing) {
-				fprintf(stderr, "Command exited with %" PRIu8 ".\n", cmd_exit);
-				fflush(stderr);
+				if (cmd.c_next == NULL) {
+					fprintf(stderr, "Command exited with %" PRIu8 ".\n", cmd_exit);
+					fflush(stderr);
+				}
 			}
 		}
 
@@ -186,7 +199,9 @@ int main(int argc, char *argv[]) {
 	return cmd_exit;
 }
 
-uint8_t export(size_t argc, char *argv[]) {
+uint8_t export(size_t argc, void **ptr) {
+	char **argv = (char**)ptr;
+
 	if (argc < 2)
 		return 1;
 
@@ -217,8 +232,32 @@ uint8_t export(size_t argc, char *argv[]) {
 	return 0;
 }
 
-uint8_t help(size_t argc, char *argv[]) {
+uint8_t help(size_t argc, void **ptr) {
+	//char **argv = (char**)ptr;
+
 	fprintf(stderr, "Not implemented yet.\n");
 	fflush(stderr);
+	return 0;
+}
+
+uint8_t mash_if(size_t argc, void **ptr) {
+	Command **cmds = (Command**)ptr;
+
+	// Condition to test
+	Command *test = cmds[0];
+
+	// Run test
+
+	// If condition was true
+	if (1) {
+		for (size_t i = 1; i < argc; ++i) {
+		}
+	}
+	// If condition was false
+	else {
+		for (size_t i = argc; cmds[i] != NULL; ++i) {
+		}
+	}
+
 	return 0;
 }
