@@ -31,6 +31,27 @@ int suftreeAdd(SufTree *tree, char *str, size_t id) {
 	// Strings, as of this far, are equal
 	if (str[i] == '\0')
 		return -1;
+	// This instance of SufTree has length 0
+	if (i == 0) {
+		const int cmp = str[i] - tree->sf_str[i];
+		if (cmp > 0) {
+			if (tree->sf_gt != NULL)
+				return suftreeAdd(tree->sf_gt, str, id);
+
+			tree->sf_gt = malloc(sizeof (SufTree));
+			*tree->sf_gt = suftreeInit(str, id);
+			return 0;
+		}
+		if (cmp < 0) {
+			if (tree->sf_lt != NULL)
+				return suftreeAdd(tree->sf_lt, str, id);
+
+			tree->sf_lt = malloc(sizeof (SufTree));
+			*tree->sf_lt = suftreeInit(str, id);
+			return 0;
+		}
+	}
+	// Length is greater than zero, or first character of each are the same
 	if (tree->sf_eq != NULL)
 		return suftreeAdd(tree->sf_eq, &str[i], id);
 
