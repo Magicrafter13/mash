@@ -20,6 +20,8 @@ struct _command {
 	enum _command_type c_type;
 	size_t c_builtin;
 	struct _command * c_next;
+	struct _command * c_if_true;
+	struct _command * c_if_false;
 };
 
 typedef struct _command Command;
@@ -28,7 +30,7 @@ void commandSetBuiltins(SufTree*);
 
 void commandSetVarFunc(char *(*)(const char*));
 
-Command commandInit();
+Command *commandInit();
 
 int commandRead(Command*, FILE*);
 

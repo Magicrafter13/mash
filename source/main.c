@@ -91,18 +91,17 @@ int main(int argc, char *argv[]) {
 
 	// User prompt (main loop)
 	// TODO make a struct for a command - can have an array of command history to call back on!
-	Command cmd = commandInit();
+	Command *cmd = commandInit();
 
 	pid_t cmd_pid;
 	int cmd_stat;
 	uint8_t cmd_exit;
 
 	for (;;) {
-		if (cmd.c_next != NULL) {
-			free(cmd.c_buf);
-			Command *next = cmd.c_next;
-			cmd = *next;
-			free(next);
+		if (cmd->c_next != NULL) {
+			Command *next = cmd->c_next;
+			free(cmd);
+			cmd = next;
 		}
 		else {
 			// Present prompt and read command
@@ -110,10 +109,19 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "$ ");
 			fflush(stderr);
 
-			if (commandRead(&cmd, input_source) == -1) {
+			int parse_result = commandRead(cmd, input_source);
+			if (parse_result == -1) {
 				if (errno > 11) {
 					int err = errno;
-					free(cmd.c_buf);
+					free(cmd->c_buf);
+					while (cmd != NULL) {
+						Command *temp_cmd = cmd->c_next;
+						for (size_t v = 0; v < cmd->c_argc; ++v)
+							free(cmd->c_argv[v]);
+						free(cmd->c_argv);
+						free(cmd);
+						cmd = temp_cmd;
+					}
 					suftreeFree(builtins.sf_gt);
 					suftreeFree(builtins.sf_eq);
 					suftreeFree(builtins.sf_lt);
@@ -132,28 +140,50 @@ int main(int argc, char *argv[]) {
 					fclose(input_source);
 				break;
 			}
+			if (parse_result) {
+				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
+				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]);
+				while (cmd->c_next != NULL) {
+					Command *temp_cmd = cmd->c_next;
+					for (size_t v = 0; v < cmd->c_argc; ++v)
+						free(cmd->c_argv[v]);
+					free(cmd->c_argv);
+					free(cmd);
+					cmd = temp_cmd;
+				}
+				continue;
+			}
 		}
 
 		// Execute command
-		if (cmd.c_type == CMD_EMPTY)
+		if (cmd->c_type == CMD_EMPTY)
 			continue;
-		if (cmd.c_type == CMD_EXIT) {
-			if (cmd.c_argc > 1) {
+		if (cmd->c_type == CMD_EXIT) {
+			if (cmd->c_argc > 1) {
 				int temp;
-				sscanf(cmd.c_argv[1], "%u", &temp);
+				sscanf(cmd->c_argv[1], "%u", &temp);
 				cmd_exit = temp % 256;
 			}
 			else
 				cmd_exit = 0;
+
+			for (size_t v = 0; v < cmd->c_argc; ++v)
+				free(cmd->c_argv[v]);
+			free(cmd->c_argv);
+
 			if (!sourcing)
 				break;
 			fseek(input_source, 0, SEEK_END);
 			continue;
 		}
-		if (cmd.c_type == CMD_BUILTIN) {
-			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd.c_builtin]);
+		if (cmd->c_type == CMD_BUILTIN) {
+			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd->c_builtin]);
 			fflush(stderr);
-			BUILTIN_FUNCTION[cmd.c_builtin](cmd.c_argc, (void**)cmd.c_argv);
+			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc, (void**)cmd->c_argv);
+
+			for (size_t v = 0; v < cmd->c_argc; ++v)
+				free(cmd->c_argv[v]);
+			free(cmd->c_argv);
 			continue;
 		}
 
@@ -161,7 +191,7 @@ int main(int argc, char *argv[]) {
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
 			// TODO consider manual search of the path
-			execvp(cmd.c_argv[0], cmd.c_argv);
+			execvp(cmd->c_argv[0], cmd->c_argv);
 			fprintf(stderr, "%m\n");
 			fflush(stderr);
 			exit(errno);
@@ -171,18 +201,24 @@ int main(int argc, char *argv[]) {
 			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
 			if (interactive && !sourcing) {
-				if (cmd.c_next == NULL) {
+				if (cmd->c_next == NULL) {
 					fprintf(stderr, "Command exited with %" PRIu8 ".\n", cmd_exit);
 					fflush(stderr);
 				}
 			}
 		}
 
-		free(cmd.c_argv);
+		for (size_t v = 0; v < cmd->c_argc; ++v)
+			free(cmd->c_argv[v]);
+		free(cmd->c_argv);
 	}
 
-	if (cmd.c_buf != NULL)
-		free(cmd.c_buf);
+	/*for (size_t v = 0; v < cmd->c_argc; ++v)
+		free(cmd->c_argv[v]);
+	free(cmd->c_argv);*/
+	if (cmd->c_buf != NULL)
+		free(cmd->c_buf);
+	free(cmd);
 
 	if (interactive)
 		free(config_file);

@@ -18,50 +18,67 @@ void commandSetVarFunc(char *(*func)(const char*)) {
 	getVarFunc = func;
 }
 
-Command commandInit() {
-	struct _command new_command;
-	new_command.c_size = 0;
-	new_command.c_buf = NULL;
-	new_command.c_next = NULL;
+Command *commandInit() {
+	struct _command *new_command = malloc(sizeof (Command));
+	new_command->c_size = 0;
+	new_command->c_buf = NULL;
+	new_command->c_next = NULL;
 	return new_command;
 }
 
 int commandRead(Command *cmd, FILE *restrict stream) {
+	Command *original = cmd;
 	/*if (cmd->c_next != NULL) {
 		commandFree(cmd->c_next);
 		cmd->c_next = NULL;
 	}*/
 
 	// Read line
-	static char *temp_buf;
-	cmd->c_len = getline(&temp_buf, &(size_t){ 0 }, stream);
+	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, stream);
 	if (cmd->c_len == -1) {
-		free(temp_buf);
+		//free(cmd->c_buf);
 		return -1;
 	}
 
+	size_t error_length = 0;
 	do {
 		// Parse Input (into tokens)
-		if (temp_buf[0] == '\n' || temp_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
-			free(temp_buf);
+		if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
+			free(cmd->c_buf);
 			cmd->c_type = CMD_EMPTY;
 			return 0;
 		}
-		if (temp_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
-			temp_buf[cmd->c_len-- - 1] = '\0';
-		commandTokenize(cmd, temp_buf); // Determine tokens and save them into cmd->c_argv
+		if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
+			cmd->c_buf[cmd->c_len-- - 1] = '\0';
+		if (commandTokenize(cmd, cmd->c_buf)) { // Determine tokens and save them into cmd->c_argv
+			// Error parsing command.
+			original->c_len = error_length + cmd->c_len;
+			cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
+			return 1;
+		}
+		error_length += cmd->c_len + 1;
 
 		// Determine command type
 		if (!strcmp(cmd->c_argv[0], "exit"))
 			cmd->c_type = CMD_EXIT;
+		/*else if (!strcmp(cmd->c_argv[0], "if")) {
+			cmd->c_type = CMD_BUILTIN;
+
+			cmd->c_next = commandInit();
+			*cmd->c_next = *cmd;
+			++cmd->c_next->c_argv;
+
+			cmd->c_if_true = commandInit();
+			cmd->c_if_false = commandInit();
+		}*/
 		else
 			cmd->c_type = suftreeHas(builtins, cmd->c_argv[0], &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
 
-		cmd = cmd->c_next;
+		//cmd = cmd->c_next;
 	}
-	while (temp_buf[0] != '\0');
+	while (cmd->c_buf[0] != '\0' && (cmd = cmd->c_next));
 
-	free(temp_buf); // Free the buffer we read into
+	//free(cmd->c_buf); // Free the buffer we read into
 
 	return 0;
 }
@@ -76,12 +93,16 @@ int commandTokenize(Command *cmd, char *buf) {
 	cmd->c_argv[cmd->c_argc] = NULL;
 
 	cmd->c_argc = 0;
-	char temp_buf[512];
+	//char temp_buf[512];
 	int semicolon = 0;
 	size_t current = 0;
 	for (size_t next = 0, start; current <= cmd->c_len && !semicolon; current++) {
 		switch (buf[current]) {
 			case ';': // End of this command
+				if (current == 0) {
+					cmd->c_len = 0;
+					return -1;
+				}
 				semicolon = 1;
 			case ' ': // can't use delim_char...
 				buf[current] = '\0';
@@ -117,13 +138,17 @@ int commandTokenize(Command *cmd, char *buf) {
 				break;
 		}
 	}
+	cmd->c_argv[cmd->c_argc] = NULL;
 
 	if (semicolon)
 		++current;
 	memmove(buf, &buf[current - 1], cmd->c_len - current + 2);
 	if (semicolon) {
-		cmd->c_next = malloc(sizeof (Command));
-		*cmd->c_next = commandInit();
+		cmd->c_next = commandInit();
+		cmd->c_next->c_buf = cmd->c_buf;
+		cmd->c_next->c_size = cmd->c_size;
+		cmd->c_next->c_len = cmd->c_len - current + 1;
+		cmd->c_len = current - 2;
 		/*cmd->c_next->c_len = cmd->c_len - current + 1;
 		cmd->c_len = current - 2;*/
 	}
