@@ -13,19 +13,21 @@
 #include "suftree.h"
 #include "command.h"
 
-uint8_t export(size_t, void**), help(size_t, void**), mash_if(size_t, void**);
+uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
-#define BUILTIN_COUNT 3
+#define BUILTIN_COUNT 4
 
 char *const BUILTIN[BUILTIN_COUNT] = {
 	"export",
 	"help",
+	"cd",
 	"if"
 };
 
 uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 	export,
 	help,
+	cd,
 	mash_if
 };
 
@@ -273,6 +275,18 @@ uint8_t help(size_t argc, void **ptr) {
 
 	fprintf(stderr, "Not implemented yet.\n");
 	fflush(stderr);
+	return 0;
+}
+
+uint8_t cd(size_t argc, void **ptr) {
+	char **argv = (char**)ptr;
+
+	if (chdir(argv[1]) == -1) {
+		int err = errno;
+		fprintf(stderr, "%m\n");
+		return err;
+	}
+
 	return 0;
 }
 
