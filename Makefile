@@ -27,7 +27,21 @@ clean:
 	$(RM) $(PROG) $(OBJS) $(D_OBJS) $(BUILD)/$(PROG) $(DEBUG)/$(PROG)
 	@/bin/echo -e '\e[1;32mClean...\e[0m'
 
-.PHONY: all clean debug
+install:
+	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
+#	$(RM) /usr/bin/mash
+	cp -f mash /usr/bin/mash
+	@echo "For \`chsh' to allow you to use mash as your shell, you must add it to"
+	@echo "/etc/shells"
+	@echo "Mash has been installed to /usr/bin/mash"
+
+uninstall:
+	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
+	$(RM) /usr/bin/mash
+	@echo "If you modified /etc/shells don't forget to change it back."
+	@echo "Mash has been uninstalled from your system"
+
+.PHONY: all clean debug install uninstall
 
 $(BUILD)/$(PROG): $(OBJS)
 	$(CC) $(LDLIBS) $^ -o $@
