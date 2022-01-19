@@ -124,8 +124,8 @@ int commandTokenize(Command *cmd, char *buf) {
 	if (semicolon) {
 		cmd->c_next = malloc(sizeof (Command));
 		*cmd->c_next = commandInit();
-		cmd->c_next->c_len = cmd->c_len - current + 1;
-		cmd->c_len = current - 2;
+		/*cmd->c_next->c_len = cmd->c_len - current + 1;
+		cmd->c_len = current - 2;*/
 	}
 
 	/*size_t i = 0;
