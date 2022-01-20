@@ -179,13 +179,22 @@ int main(int argc, char *argv[]) {
 			fseek(input_source, 0, SEEK_END);
 			continue;
 		}
-		if (cmd->c_type == CMD_BUILTIN) {
+
+		// Expand command
+		char *e_argv[cmd->c_argc + 1];
+		for (size_t i = 0; i < cmd->c_argc; ++i)
+			e_argv[i] = expandArgument(cmd->c_argv[i]);
+		e_argv[cmd->c_argc] = NULL;
+
+		if (suftreeHas(&builtins, e_argv[0], &cmd->c_builtin)) {
 			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd->c_builtin]);
 			fflush(stderr);
-			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc, (void**)cmd->c_argv);
+			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc, (void**)e_argv);
 
-			for (size_t v = 0; v < cmd->c_argc; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v) {
+				free(e_argv[v]);
 				freeArg(cmd->c_argv[v]);
+			}
 			free(cmd->c_argv);
 			continue;
 		}
@@ -194,10 +203,6 @@ int main(int argc, char *argv[]) {
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
 			// TODO consider manual search of the path
-			char *e_argv[cmd->c_argc + 1];
-			for (size_t i = 0; i < cmd->c_argc; ++i)
-				e_argv[i] = expandArgument(cmd->c_argv[i]);
-			e_argv[cmd->c_argc] = NULL;
 			/*fprintf(stderr, "Execing:\n");
 			for (size_t i = 0; i < cmd->c_argc; ++i)
 				fprintf(stderr, "%s ", e_argv[i]);

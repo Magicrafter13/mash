@@ -71,7 +71,7 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 			if (cmd->c_argv[0].type != ARG_BASIC_STRING)
 				cmd->c_type = CMD_INDETERMINATE;
 			else
-				cmd->c_type = suftreeHas(builtins, cmd->c_argv[0].str, &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
+				cmd->c_type = CMD_REGULAR;
 		}
 
 		//cmd = cmd->c_next;
