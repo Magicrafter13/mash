@@ -181,8 +181,10 @@ int main(int argc, char *argv[]) {
 			else
 				cmd_exit = 0;
 
-			for (size_t v = 0; v < cmd->c_argc; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v) {
+				free(e_argv[v]);
 				freeArg(cmd->c_argv[v]);
+			}
 			free(cmd->c_argv);
 
 			if (!sourcing)
@@ -233,8 +235,10 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		for (size_t v = 0; v < cmd->c_argc; ++v)
+		for (size_t v = 0; v < cmd->c_argc; ++v) {
+			free(e_argv[v]);
 			freeArg(cmd->c_argv[v]);
+		}
 		free(cmd->c_argv);
 	}
 
