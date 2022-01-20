@@ -28,10 +28,6 @@ Command *commandInit() {
 
 int commandRead(Command *cmd, FILE *restrict stream) {
 	Command *original = cmd;
-	/*if (cmd->c_next != NULL) {
-		commandFree(cmd->c_next);
-		cmd->c_next = NULL;
-	}*/
 
 	// Read line
 	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, stream);
@@ -59,7 +55,7 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 		error_length += cmd->c_len + 1;
 
 		// Determine command type
-		if (!strcmp(cmd->c_argv[0], "exit"))
+		if (cmd->c_argv[0].type == ARG_BASIC_STRING && !strcmp(cmd->c_argv[0].str, "exit"))
 			cmd->c_type = CMD_EXIT;
 		/*else if (!strcmp(cmd->c_argv[0], "if")) {
 			cmd->c_type = CMD_BUILTIN;
@@ -71,8 +67,12 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 			cmd->c_if_true = commandInit();
 			cmd->c_if_false = commandInit();
 		}*/
-		else
-			cmd->c_type = suftreeHas(builtins, cmd->c_argv[0], &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
+		else {
+			if (cmd->c_argv[0].type != ARG_BASIC_STRING)
+				cmd->c_type = CMD_INDETERMINATE;
+			else
+				cmd->c_type = suftreeHas(builtins, cmd->c_argv[0].str, &cmd->c_builtin) ? CMD_BUILTIN : CMD_REGULAR;
+		}
 
 		//cmd = cmd->c_next;
 	}
@@ -89,8 +89,7 @@ int commandTokenize(Command *cmd, char *buf) {
 		if (buf[i] == *delim_char)
 			cmd->c_argc++;
 
-	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (char*));
-	cmd->c_argv[cmd->c_argc] = NULL;
+	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (struct _arg));
 
 	cmd->c_argc = 0;
 	//char temp_buf[512];
@@ -111,13 +110,13 @@ int commandTokenize(Command *cmd, char *buf) {
 					next = current + 1;
 					continue;
 				}
-				cmd->c_argv[cmd->c_argc++] = strndup(&buf[next], current - next);
+				cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[next], current - next)};
 				next = current + 1;
 				break;
 			case '\'':
 				start = current;
 				while (buf[++current] != '\'');
-				cmd->c_argv[cmd->c_argc++] = strndup(&buf[start + 1], current - start - 1);
+				cmd->c_argv[cmd->c_argc++] = (struct _arg) { .type = ARG_BASIC_STRING, .str = strndup(&buf[start + 1], current - start - 1) };
 				next = current + 1;
 				break;
 			case '$':
@@ -125,20 +124,12 @@ int commandTokenize(Command *cmd, char *buf) {
 				while (buf[current] != ' ' && buf[current] != '\0')
 					current++;
 				buf[current] = '\0';
-				if (!strcmp(&buf[start], "RANDOM")) {
-					char number[12];
-					sprintf(number, "%lu", random());
-					cmd->c_argv[cmd->c_argc++] = strdup(number);
-				}
-				else {
-					char *value = getVarFunc(&buf[start]);
-					cmd->c_argv[cmd->c_argc++] = strdup(value == NULL ? "" : value);
-				}
+				cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_VARIABLE, .str = strdup(&buf[start]) };
 				next = current + 1;
 				break;
 		}
 	}
-	cmd->c_argv[cmd->c_argc] = NULL;
+	cmd->c_argv[cmd->c_argc].type = ARG_NULL;
 
 	if (semicolon)
 		++current;
@@ -171,10 +162,18 @@ int commandTokenize(Command *cmd, char *buf) {
 	return 0;
 }
 
-void commandFree(Command *cmd) {
-	if (cmd->c_argv != NULL)
-		free(cmd->c_argv);
-	if (cmd->c_next != NULL)
-		commandFree(cmd->c_next);
-	free(cmd);
+void freeArg(struct _arg a) {
+	switch (a.type) {
+		case ARG_BASIC_STRING:
+		case ARG_VARIABLE:
+			free(a.str);
+			break;
+		case ARG_COMPLEX_STRING:
+			for (size_t i = 0; a.sub[i].type != ARG_NULL; ++i)
+				freeArg(a.sub[i]);
+			break;
+		case ARG_NULL:
+		default:
+			break;
+	}
 }

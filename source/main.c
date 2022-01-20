@@ -13,6 +13,7 @@
 #include "suftree.h"
 #include "command.h"
 
+char *expandArgument(struct _arg);
 uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
 #define BUILTIN_COUNT 4
@@ -119,7 +120,7 @@ int main(int argc, char *argv[]) {
 					while (cmd != NULL) {
 						Command *temp_cmd = cmd->c_next;
 						for (size_t v = 0; v < cmd->c_argc; ++v)
-							free(cmd->c_argv[v]);
+							freeArg(cmd->c_argv[v]);
 						free(cmd->c_argv);
 						free(cmd);
 						cmd = temp_cmd;
@@ -148,7 +149,7 @@ int main(int argc, char *argv[]) {
 				while (cmd->c_next != NULL) {
 					Command *temp_cmd = cmd->c_next;
 					for (size_t v = 0; v < cmd->c_argc; ++v)
-						free(cmd->c_argv[v]);
+						freeArg(cmd->c_argv[v]);
 					free(cmd->c_argv);
 					free(cmd);
 					cmd = temp_cmd;
@@ -163,14 +164,14 @@ int main(int argc, char *argv[]) {
 		if (cmd->c_type == CMD_EXIT) {
 			if (cmd->c_argc > 1) {
 				int temp;
-				sscanf(cmd->c_argv[1], "%u", &temp);
+				sscanf(cmd->c_argv[1].str, "%u", &temp);
 				cmd_exit = temp % 256;
 			}
 			else
 				cmd_exit = 0;
 
 			for (size_t v = 0; v < cmd->c_argc; ++v)
-				free(cmd->c_argv[v]);
+				freeArg(cmd->c_argv[v]);
 			free(cmd->c_argv);
 
 			if (!sourcing)
@@ -184,7 +185,7 @@ int main(int argc, char *argv[]) {
 			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc, (void**)cmd->c_argv);
 
 			for (size_t v = 0; v < cmd->c_argc; ++v)
-				free(cmd->c_argv[v]);
+				freeArg(cmd->c_argv[v]);
 			free(cmd->c_argv);
 			continue;
 		}
@@ -193,9 +194,19 @@ int main(int argc, char *argv[]) {
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
 			// TODO consider manual search of the path
-			execvp(cmd->c_argv[0], cmd->c_argv);
+			char *e_argv[cmd->c_argc + 1];
+			for (size_t i = 0; i < cmd->c_argc; ++i)
+				e_argv[i] = expandArgument(cmd->c_argv[i]);
+			e_argv[cmd->c_argc] = NULL;
+			/*fprintf(stderr, "Execing:\n");
+			for (size_t i = 0; i < cmd->c_argc; ++i)
+				fprintf(stderr, "%s ", e_argv[i]);
+			fprintf(stderr, "\n");*/
+			execvp(e_argv[0], e_argv);
 			fprintf(stderr, "%m\n");
 			fflush(stderr);
+			for (size_t i = 0; i < cmd->c_argc; ++i)
+				free(e_argv[i]);
 			exit(errno);
 		}
 		// While the main process waits for the child to exit
@@ -211,7 +222,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(cmd->c_argv[v]);
+			freeArg(cmd->c_argv[v]);
 		free(cmd->c_argv);
 	}
 
@@ -235,6 +246,58 @@ int main(int argc, char *argv[]) {
 	/*if (!interactive)
 		fclose(stdout);*/
 	return cmd_exit;
+}
+
+char *expandArgument(struct _arg arg) {
+	switch (arg.type) {
+		case ARG_BASIC_STRING:
+			return strdup(arg.str);
+		case ARG_VARIABLE:
+			if (!strcmp(arg.str, "RANDOM")) {
+				char number[12];
+				sprintf(number, "%lu", random());
+				return strdup(number);
+			}
+
+			char *value = getenv(arg.str);
+			return strdup(value == NULL ? "" : value);
+		case ARG_COMPLEX_STRING: {
+			size_t sub_count = 0;
+			while (arg.sub[sub_count].type != ARG_NULL)
+				++sub_count;
+			char *argv[sub_count];
+			for (size_t i = 0; i < sub_count; ++i) {
+				char *e = expandArgument(arg.sub[i]);
+				if (e == NULL) {
+					for (size_t f = 0; f < i; ++f)
+						free(argv[f]);
+					return NULL;
+				}
+				argv[i] = e;
+			}
+
+			// Find length of strings together
+			size_t length = 0;
+			for (size_t i = 0; i < sub_count; ++i)
+				length += strlen(argv[i]);
+			char *expanded_string = calloc(length + 1, sizeof (char));
+			expanded_string[0] = '\0';
+			for (size_t i = 0; i < sub_count; ++i) {
+				strcat(expanded_string, argv[i]);
+				free(argv[i]);
+			}
+			/*char fmt[sub_count * 2];
+			for (size_t i = 0; i < sub_count; ++i) {
+				fmt[i * 2] = '%';
+				fmt[i * 2 + 1] = 's';
+			}
+			vasprintf(&expanded_string, fmt, argv);*/
+			return expanded_string;
+		}
+		case ARG_NULL:
+		default:
+			return NULL;
+	}
 }
 
 uint8_t export(size_t argc, void **ptr) {
