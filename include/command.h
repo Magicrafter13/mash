@@ -20,21 +20,11 @@ struct _arg {
 	};
 };
 
-enum _command_type {
-	CMD_UNKNOWN,
-	CMD_REGULAR,
-	CMD_EMPTY,
-	CMD_BUILTIN,
-	CMD_EXIT,
-	CMD_INDETERMINATE
-};
-
 struct _command {
 	size_t c_len, c_size;
 	char * c_buf;
 	int c_argc;
 	struct _arg * c_argv;
-	enum _command_type c_type;
 	size_t c_builtin;
 	struct _command * c_next;
 	struct _command * c_if_true;

@@ -41,7 +41,7 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 		// Parse Input (into tokens)
 		if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 			free(cmd->c_buf);
-			cmd->c_type = CMD_EMPTY;
+			cmd->c_argc = 0;
 			return 0;
 		}
 		if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
@@ -54,9 +54,6 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 		}
 		error_length += cmd->c_len + 1;
 
-		// Determine command type
-		if (cmd->c_argv[0].type == ARG_BASIC_STRING && !strcmp(cmd->c_argv[0].str, "exit"))
-			cmd->c_type = CMD_EXIT;
 		/*else if (!strcmp(cmd->c_argv[0], "if")) {
 			cmd->c_type = CMD_BUILTIN;
 
@@ -67,12 +64,6 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 			cmd->c_if_true = commandInit();
 			cmd->c_if_false = commandInit();
 		}*/
-		else {
-			if (cmd->c_argv[0].type != ARG_BASIC_STRING)
-				cmd->c_type = CMD_INDETERMINATE;
-			else
-				cmd->c_type = CMD_REGULAR;
-		}
 
 		//cmd = cmd->c_next;
 	}

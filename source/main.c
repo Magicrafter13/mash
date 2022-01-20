@@ -158,10 +158,21 @@ int main(int argc, char *argv[]) {
 			}
 		}
 
-		// Execute command
-		if (cmd->c_type == CMD_EMPTY)
+		/*
+		 * Execute command
+		 */
+		// Empty/blank command
+		if (cmd->c_argc == 0)
 			continue;
-		if (cmd->c_type == CMD_EXIT) {
+
+		// Expand command
+		char *e_argv[cmd->c_argc + 1];
+		for (size_t i = 0; i < cmd->c_argc; ++i)
+			e_argv[i] = expandArgument(cmd->c_argv[i]);
+		e_argv[cmd->c_argc] = NULL;
+
+		// Exit shell
+		if (!strcmp(e_argv[0], "exit")) {
 			if (cmd->c_argc > 1) {
 				int temp;
 				sscanf(cmd->c_argv[1].str, "%u", &temp);
@@ -180,12 +191,7 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
-		// Expand command
-		char *e_argv[cmd->c_argc + 1];
-		for (size_t i = 0; i < cmd->c_argc; ++i)
-			e_argv[i] = expandArgument(cmd->c_argv[i]);
-		e_argv[cmd->c_argc] = NULL;
-
+		// Execute builtin
 		if (suftreeHas(&builtins, e_argv[0], &cmd->c_builtin)) {
 			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd->c_builtin]);
 			fflush(stderr);
@@ -199,6 +205,7 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		// Execute regular command
 		cmd_pid = fork();
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
