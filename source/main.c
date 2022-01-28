@@ -13,7 +13,7 @@
 #include "suftree.h"
 #include "command.h"
 
-char *expandArgument(struct _arg);
+char *expandArgument(struct _arg, uint8_t);
 uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
 #define BUILTIN_COUNT 4
@@ -205,12 +205,12 @@ int main(int argc, char *argv[]) {
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];
 		for (size_t i = flow_control; i < cmd->c_argc; ++i)
-			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i]);
+			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i], cmd_exit);
 		e_argv[cmd->c_argc - flow_control] = NULL;
-		fprintf(stderr, "Execing:\n");
+		/*fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			fprintf(stderr, "%s ", e_argv[i]);
-		fprintf(stderr, "\n");
+		fprintf(stderr, "\n");*/
 
 		// Exit shell
 		if (!strcmp(e_argv[0], "exit")) {
@@ -272,8 +272,6 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-exit_free:
-
 	if (cmd->c_buf != NULL)
 		free(cmd->c_buf);
 	commandFree(cmd);
@@ -296,7 +294,7 @@ exit_free:
 	return cmd_exit;
 }
 
-char *expandArgument(struct _arg arg) {
+char *expandArgument(struct _arg arg, uint8_t cmd_exit) {
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
 			return strdup(arg.str);
@@ -304,6 +302,11 @@ char *expandArgument(struct _arg arg) {
 			if (!strcmp(arg.str, "RANDOM")) {
 				char number[12];
 				sprintf(number, "%lu", random());
+				return strdup(number);
+			}
+			else if (!strcmp(arg.str, "?")) {
+				char number[3];
+				sprintf(number, "%"PRIu8, cmd_exit);
 				return strdup(number);
 			}
 
@@ -315,7 +318,7 @@ char *expandArgument(struct _arg arg) {
 				++sub_count;
 			char *argv[sub_count];
 			for (size_t i = 0; i < sub_count; ++i) {
-				char *e = expandArgument(arg.sub[i]);
+				char *e = expandArgument(arg.sub[i], cmd_exit);
 				if (e == NULL) {
 					for (size_t f = 0; f < i; ++f)
 						free(argv[f]);
