@@ -204,6 +204,9 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 						if (cmd->c_argc == 0)
 							continue;
 
+						// Ignore irrelevant command types
+						if (cmd->c_type != CMD_REGULAR)
+							continue;
 						// Ignore other argument types
 						if (cmd->c_argv[0].type != ARG_BASIC_STRING)
 							continue;
@@ -241,14 +244,12 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 							return 1;
 						}
 
-						// Point final statement in true block, and false block, to fi's next
-						if_cmd->c_next = cmd->c_next;
+						// Point final statement in true block, and false block, to fi (which will become a CMD_EMPTY)
+						if_cmd->c_next = cmd;
 						if (last_true != NULL)
-							last_true->c_next = cmd->c_next;
-						previous->c_next = cmd->c_next;
-						cmd->c_next = NULL;
-						commandFree(cmd);
-						cmd = if_cmd;
+							last_true->c_next = cmd;
+						previous->c_next = cmd;
+						cmd->c_type = CMD_EMPTY;
 						while (cmd->c_next != NULL)
 							cmd = cmd->c_next;
 						found_fi = 1;

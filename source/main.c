@@ -163,8 +163,6 @@ int main(int argc, char *argv[]) {
 				cmd = NULL;
 				continue;
 			}
-			if (cmd->c_type == CMD_EMPTY)
-				continue;
 		}
 		else {
 			switch (cmd->c_type) {
@@ -191,7 +189,9 @@ int main(int argc, char *argv[]) {
 		 */
 
 		// Empty/blank command
-		if (cmd->c_argc == 0)
+		if (cmd->c_type == CMD_EMPTY)
+			continue;
+		if (cmd->c_argc == 0) // TODO: do we need this...?
 			continue;
 
 		int flow_control = 0; // SHOULD ONLY BE ZERO OR ONE
@@ -203,10 +203,10 @@ int main(int argc, char *argv[]) {
 		for (size_t i = flow_control; i < cmd->c_argc; ++i)
 			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i], cmd_exit);
 		e_argv[cmd->c_argc - flow_control] = NULL;
-		/*fprintf(stderr, "Execing:\n");
+		fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			fprintf(stderr, "%s ", e_argv[i]);
-		fprintf(stderr, "\n");*/
+		fprintf(stderr, "\n");
 
 		// Exit shell
 		if (!strcmp(e_argv[0], "exit")) {
