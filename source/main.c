@@ -38,9 +38,11 @@ int main(int argc, char *argv[]) {
 	fprintf(stderr, "This mash is %sa login shell.\n", login ? "" : "not ");
 	fflush(stderr);
 
-	int interactive = argc == 1 && isatty(fileno(stdin)), sourcing = 0;
+	int interactive = argc == 1 && isatty(fileno(stdin)), sourcing = 0, subshell = 0;
 	fprintf(stderr, "This mash is %sinteractive.\n", interactive ? "" : "non-");
 	fflush(stderr);
+
+	char *subshell_cmd;
 
 	// Initialize
 	srandom(time(NULL));
@@ -81,11 +83,29 @@ int main(int argc, char *argv[]) {
 	}
 	else {
 		if (argc > 1) {
-			input_source = fopen(argv[1], "r");
-			if (input_source == NULL) {
-				fprintf(stderr, "%m\n");
-				fflush(stderr);
-				return errno;
+			// Check what type of argument was passed
+			if (argv[1][0] == '-') {
+				// Regular argument
+				char c;
+				for (size_t i = 1; c = argv[1][i], c != '\0'; ++i) {
+					switch (c) {
+						case 'c':
+							subshell = 1;
+							subshell_cmd = argv[2];
+							break;
+						default:
+							fprintf(stderr, "Unrecognized option '%c', ignoring.\n", c);
+					}
+				}
+			}
+			else {
+				// (Presumed) file name
+				input_source = fopen(argv[1], "r");
+				if (input_source == NULL) {
+					fprintf(stderr, "%m\n");
+					fflush(stderr);
+					return errno;
+				}
 			}
 		}
 	}
@@ -93,6 +113,11 @@ int main(int argc, char *argv[]) {
 	// User prompt (main loop)
 	// TODO make a struct for a command - can have an array of command history to call back on!
 	Command *cmd = NULL, *last_cmd = commandInit();
+	if (subshell) {
+		last_cmd->c_len = strlen(subshell_cmd);
+		last_cmd->c_buf = subshell_cmd;
+		input_source = NULL;
+	}
 
 	pid_t cmd_pid;
 	int cmd_stat;
@@ -138,6 +163,8 @@ int main(int argc, char *argv[]) {
 			int parse_result = commandParse(cmd, input_source);
 			last_cmd = cmd;
 			if (parse_result == -1) {
+				if (subshell)
+					break;
 				if (errno > 11) {
 					int err = errno;
 					fprintf(stderr, "%s\n", strerror(err));
@@ -270,7 +297,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	if (cmd->c_buf != NULL)
+	if (!subshell && cmd->c_buf != NULL)
 		free(cmd->c_buf);
 	commandFree(cmd);
 

@@ -47,7 +47,7 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 
 	// Read line if buffer isn't empty
 	if (cmd->c_buf == NULL || cmd->c_buf[0] == '\0')
-		if (commandRead(cmd, stream) == -1)
+		if (stream == NULL || commandRead(cmd, stream) == -1)
 			return -1;
 	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 		cmd->c_buf[0] = '\0';
