@@ -171,9 +171,11 @@ int main(int argc, char *argv[]) {
 					break;
 				case CMD_WHILE:
 					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_next;
+					cmd_exit = 0;
 					break;
 				case CMD_IF:
 					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_if_false;
+					cmd_exit = 0;
 					break;
 				case CMD_EMPTY:
 				case CMD_REGULAR:
@@ -203,10 +205,10 @@ int main(int argc, char *argv[]) {
 		for (size_t i = flow_control; i < cmd->c_argc; ++i)
 			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i], cmd_exit);
 		e_argv[cmd->c_argc - flow_control] = NULL;
-		fprintf(stderr, "Execing:\n");
+		/*fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			fprintf(stderr, "%s ", e_argv[i]);
-		fprintf(stderr, "\n");
+		fprintf(stderr, "\n");*/
 
 		// Exit shell
 		if (!strcmp(e_argv[0], "exit")) {
@@ -257,12 +259,12 @@ int main(int argc, char *argv[]) {
 		else {
 			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
-			if (interactive && !sourcing) {
+			/*if (interactive && !sourcing) {
 				if (cmd->c_next == NULL) {
 					fprintf(stderr, "Command exited with %" PRIu8 ".\n", cmd_exit);
 					fflush(stderr);
 				}
-			}
+			}*/
 			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
 				free(e_argv[i]);
 		}
