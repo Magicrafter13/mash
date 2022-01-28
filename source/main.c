@@ -16,20 +16,18 @@
 char *expandArgument(struct _arg, uint8_t);
 uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
-#define BUILTIN_COUNT 4
+#define BUILTIN_COUNT 3
 
 char *const BUILTIN[BUILTIN_COUNT] = {
 	"export",
 	"help",
-	"cd",
-	"if"
+	"cd"
 };
 
 uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 	export,
 	help,
-	cd,
-	mash_if
+	cd
 };
 
 extern char **environ;
@@ -112,9 +110,18 @@ int main(int argc, char *argv[]) {
 			}
 			else {
 				cmd = last_cmd;
-				commandFree(cmd->c_next);
-				commandFree(cmd->c_if_true);
-				commandFree(cmd->c_if_false);
+				if (cmd->c_next != NULL) {
+					commandFree(cmd->c_next);
+					cmd->c_next = NULL;
+				}
+				if (cmd->c_if_true != NULL) {
+					commandFree(cmd->c_if_true);
+					cmd->c_if_true = NULL;
+				}
+				if (cmd->c_if_false != NULL) {
+					commandFree(cmd->c_if_false);
+					cmd->c_if_false = NULL;
+				}
 				if (cmd->c_argv != NULL) {
 					for (size_t i = 0; i < cmd->c_argc; ++i)
 						freeArg(cmd->c_argv[i]);
@@ -152,15 +159,8 @@ int main(int argc, char *argv[]) {
 			if (parse_result) {
 				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
 				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]);
-				for (size_t i = 0; i < cmd->c_argc; ++i)
-					freeArg(cmd->c_argv[i]);
-				free(cmd->c_argv);
-				while (cmd->c_next != NULL)
-					commandFree(cmd->c_next);
-				while (cmd->c_if_true != NULL)
-					commandFree(cmd->c_if_true);
-				while (cmd->c_if_false != NULL)
-					commandFree(cmd->c_if_false);
+				cmd->c_buf[0] = '\0';
+				cmd = NULL;
 				continue;
 			}
 			if (cmd->c_type == CMD_EMPTY)
@@ -172,22 +172,18 @@ int main(int argc, char *argv[]) {
 					fprintf(stderr, "CMD_FREED encountered!\n");
 					break;
 				case CMD_WHILE:
-					// True
-					if (!cmd_exit) {
-						cmd = cmd->c_if_true;
-						break;
-					}
-					// False
-					// TODO WHEN YOU WAKE UP: FIGURE OUT HOW TO TELL IF WE DON'T NEED TO STORE COMMAND DATA
-					// ANYMORE SO WE CAN FREE MEMORY. MAYBE HAVE A STRUCT AND KEEP TRACK OF DEPTH FOR EACH
-					// FLOW CONTROL TYPE LIKE WHILE/FOR/IF?
+					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_next;
+					break;
+				case CMD_IF:
+					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_if_false;
+					break;
 				case CMD_EMPTY:
 				case CMD_REGULAR:
 				default:
 					cmd = cmd->c_next;
-					if (cmd == NULL)
-						continue;
 			}
+			if (cmd == NULL)
+				continue;
 		}
 
 		/*
@@ -200,7 +196,7 @@ int main(int argc, char *argv[]) {
 
 		int flow_control = 0; // SHOULD ONLY BE ZERO OR ONE
 		if (cmd->c_argv[0].type == ARG_BASIC_STRING)
-			if (!strcmp(cmd->c_argv[0].str, "while"))
+			if (!strcmp(cmd->c_argv[0].str, "while") || !strcmp(cmd->c_argv[0].str, "if"))
 				flow_control = 1;
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];

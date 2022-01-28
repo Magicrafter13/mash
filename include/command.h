@@ -24,7 +24,8 @@ enum _cmd_type {
 	CMD_FREED,   // Type to ignore in commandFree - useful for loops where child commands will point back to the loop they are in
 	CMD_EMPTY,   // Command to ignore (comments, blank lines, etc)
 	CMD_REGULAR,
-	CMD_WHILE
+	CMD_WHILE,
+	CMD_IF
 };
 
 struct _command {
