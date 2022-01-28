@@ -56,18 +56,18 @@ int main(int argc, char *argv[]) {
 
 	const uid_t UID = getuid();
 	struct passwd *PASSWD = getpwuid(UID);
-	char *config_file;
+	char *config_file = NULL;
 	if (interactive) { // Source config
 		char *temp = getenv("XDG_CONFIG_HOME");
 		if (temp == NULL) {
 			size_t len = strlen(PASSWD->pw_dir);
-			config_file = calloc(len + 25, sizeof (char));
+			config_file = calloc(len + 26, sizeof (char));
 			strcpy(config_file, PASSWD->pw_dir);
 			strcpy(&config_file[len], "/.config/mash/config.mash");
 		}
 		else {
 			size_t len = strlen(temp);
-			config_file = calloc(len + 17, sizeof (char));
+			config_file = calloc(len + 18, sizeof (char));
 			strcpy(config_file, temp);
 			strcpy(&config_file[len], "/mash/config.mash");
 		}
@@ -94,43 +94,47 @@ int main(int argc, char *argv[]) {
 
 	// User prompt (main loop)
 	// TODO make a struct for a command - can have an array of command history to call back on!
-	Command *cmd = commandInit();
+	Command *cmd = NULL, *last_cmd = commandInit();
 
 	pid_t cmd_pid;
 	int cmd_stat;
 	uint8_t cmd_exit;
 
 	for (;;) {
-		if (cmd->c_next != NULL) {
-			Command *next = cmd->c_next;
-			free(cmd);
-			cmd = next;
-		}
-		else {
+		if (cmd == NULL) {
+			if (last_cmd->c_type == CMD_WHILE) {
+				cmd = commandInit();
+				cmd->c_buf = last_cmd->c_buf;
+				cmd->c_size = last_cmd->c_size;
+				commandFree(last_cmd);
+			}
+			else {
+				cmd = last_cmd;
+				commandFree(cmd->c_next);
+				commandFree(cmd->c_if_true);
+				commandFree(cmd->c_if_false);
+				if (cmd->c_argv != NULL) {
+					for (size_t i = 0; i < cmd->c_argc; ++i)
+						freeArg(cmd->c_argv[i]);
+					free(cmd->c_argv);
+					cmd->c_argv = NULL;
+				}
+			}
+
 			// Present prompt and read command
 			if (interactive && !sourcing)
 				fprintf(stderr, "$ ");
 			fflush(stderr);
 
-			int parse_result = commandRead(cmd, input_source);
+			int parse_result = commandParse(cmd, input_source);
+			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (errno > 11) {
 					int err = errno;
-					free(cmd->c_buf);
-					while (cmd != NULL) {
-						Command *temp_cmd = cmd->c_next;
-						for (size_t v = 0; v < cmd->c_argc; ++v)
-							freeArg(cmd->c_argv[v]);
-						free(cmd->c_argv);
-						free(cmd);
-						cmd = temp_cmd;
-					}
-					suftreeFree(builtins.sf_gt);
-					suftreeFree(builtins.sf_eq);
-					suftreeFree(builtins.sf_lt);
 					fprintf(stderr, "%s\n", strerror(err));
 					fflush(stderr);
-					return err;
+					cmd_exit = err;
+					break;
 				}
 				// EOF
 				if (sourcing) {
@@ -146,46 +150,72 @@ int main(int argc, char *argv[]) {
 			if (parse_result) {
 				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
 				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]);
-				while (cmd->c_next != NULL) {
-					Command *temp_cmd = cmd->c_next;
-					for (size_t v = 0; v < cmd->c_argc; ++v)
-						freeArg(cmd->c_argv[v]);
-					free(cmd->c_argv);
-					free(cmd);
-					cmd = temp_cmd;
-				}
+				for (size_t i = 0; i < cmd->c_argc; ++i)
+					freeArg(cmd->c_argv[i]);
+				free(cmd->c_argv);
+				while (cmd->c_next != NULL)
+					commandFree(cmd->c_next);
+				while (cmd->c_if_true != NULL)
+					commandFree(cmd->c_if_true);
+				while (cmd->c_if_false != NULL)
+					commandFree(cmd->c_if_false);
 				continue;
+			}
+		}
+		else {
+			switch (cmd->c_type) {
+				case CMD_WHILE:
+					// True
+					if (!cmd_exit) {
+						cmd = cmd->c_if_true;
+						break;
+					}
+					// False
+					// TODO WHEN YOU WAKE UP: FIGURE OUT HOW TO TELL IF WE DON'T NEED TO STORE COMMAND DATA
+					// ANYMORE SO WE CAN FREE MEMORY. MAYBE HAVE A STRUCT AND KEEP TRACK OF DEPTH FOR EACH
+					// FLOW CONTROL TYPE LIKE WHILE/FOR/IF?
+				case CMD_REGULAR:
+				default:
+					cmd = cmd->c_next;
+					if (cmd == NULL)
+						continue;
 			}
 		}
 
 		/*
 		 * Execute command
 		 */
+
 		// Empty/blank command
 		if (cmd->c_argc == 0)
 			continue;
 
+		int flow_control = 0; // SHOULD ONLY BE ZERO OR ONE
+		if (cmd->c_argv[0].type == ARG_BASIC_STRING)
+			if (!strcmp(cmd->c_argv[0].str, "while"))
+				flow_control = 1;
 		// Expand command
-		char *e_argv[cmd->c_argc + 1];
+		char *e_argv[cmd->c_argc + 1 - flow_control];
+		for (size_t i = flow_control; i < cmd->c_argc; ++i)
+			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i]);
+		e_argv[cmd->c_argc - flow_control] = NULL;
+		fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
-			e_argv[i] = expandArgument(cmd->c_argv[i]);
-		e_argv[cmd->c_argc] = NULL;
+			fprintf(stderr, "%s ", e_argv[i]);
+		fprintf(stderr, "\n");
 
 		// Exit shell
 		if (!strcmp(e_argv[0], "exit")) {
-			if (cmd->c_argc > 1) {
+			if (cmd->c_argc > 1 + flow_control) {
 				int temp;
-				sscanf(cmd->c_argv[1].str, "%u", &temp);
+				sscanf(e_argv[1], "%u", &temp);
 				cmd_exit = temp % 256;
 			}
 			else
 				cmd_exit = 0;
 
-			for (size_t v = 0; v < cmd->c_argc; ++v) {
+			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
 				free(e_argv[v]);
-				freeArg(cmd->c_argv[v]);
-			}
-			free(cmd->c_argv);
 
 			if (!sourcing)
 				break;
@@ -197,13 +227,10 @@ int main(int argc, char *argv[]) {
 		if (suftreeHas(&builtins, e_argv[0], &cmd->c_builtin)) {
 			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd->c_builtin]);
 			fflush(stderr);
-			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc, (void**)e_argv);
+			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc - flow_control, (void**)e_argv);
 
-			for (size_t v = 0; v < cmd->c_argc; ++v) {
+			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
 				free(e_argv[v]);
-				freeArg(cmd->c_argv[v]);
-			}
-			free(cmd->c_argv);
 			continue;
 		}
 
@@ -212,16 +239,15 @@ int main(int argc, char *argv[]) {
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
 			// TODO consider manual search of the path
-			/*fprintf(stderr, "Execing:\n");
-			for (size_t i = 0; i < cmd->c_argc; ++i)
-				fprintf(stderr, "%s ", e_argv[i]);
-			fprintf(stderr, "\n");*/
 			execvp(e_argv[0], e_argv);
 			fprintf(stderr, "%m\n");
 			fflush(stderr);
-			for (size_t i = 0; i < cmd->c_argc; ++i)
+
+			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
+			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
 				free(e_argv[i]);
-			exit(errno);
+			cmd_exit = errno;
+			break;
 		}
 		// While the main process waits for the child to exit
 		else {
@@ -233,21 +259,19 @@ int main(int argc, char *argv[]) {
 					fflush(stderr);
 				}
 			}
+			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
+				free(e_argv[i]);
 		}
-
-		for (size_t v = 0; v < cmd->c_argc; ++v) {
-			free(e_argv[v]);
-			freeArg(cmd->c_argv[v]);
-		}
-		free(cmd->c_argv);
 	}
 
-	/*for (size_t v = 0; v < cmd->c_argc; ++v)
-		free(cmd->c_argv[v]);
-	free(cmd->c_argv);*/
+exit_free:
+
 	if (cmd->c_buf != NULL)
 		free(cmd->c_buf);
-	free(cmd);
+	commandFree(cmd);
+
+	if (sourcing)
+		fclose(input_source);
 
 	if (interactive)
 		free(config_file);

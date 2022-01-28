@@ -20,9 +20,16 @@ struct _arg {
 	};
 };
 
+enum _cmd_type {
+	CMD_FREED,   // Type to ignore in commandFree - useful for loops where child commands will point back to the loop they are in
+	CMD_REGULAR,
+	CMD_WHILE
+};
+
 struct _command {
 	size_t c_len, c_size;
 	char * c_buf;
+	enum _cmd_type c_type;
 	int c_argc;
 	struct _arg * c_argv;
 	size_t c_builtin;
@@ -40,6 +47,10 @@ void commandSetVarFunc(char *(*)(const char*));
 Command *commandInit();
 
 int commandRead(Command*, FILE*);
+
+int commandParse(Command*, FILE*);
+
+void commandFree(Command*);
 
 void freeArg(struct _arg);
 

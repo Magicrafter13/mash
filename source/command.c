@@ -22,30 +22,44 @@ Command *commandInit() {
 	struct _command *new_command = malloc(sizeof (Command));
 	new_command->c_size = 0;
 	new_command->c_buf = NULL;
+	new_command->c_type = CMD_REGULAR;
+	new_command->c_argc = 0;
+	new_command->c_argv = NULL;
 	new_command->c_next = NULL;
+	new_command->c_if_true = NULL;
+	new_command->c_if_false = NULL;
 	return new_command;
 }
 
 int commandRead(Command *cmd, FILE *restrict stream) {
-	Command *original = cmd;
-
-	// Read line
 	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, stream);
 	if (cmd->c_len == -1) {
 		//free(cmd->c_buf);
 		return -1;
 	}
 
+	if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
+		cmd->c_buf[cmd->c_len-- - 1] = '\0';
+
+	return 0;
+}
+
+int commandParse(Command *cmd, FILE *restrict stream) {
+	Command *original = cmd;
+
+	// Read line if buffer isn't empty
+	if (cmd->c_buf == NULL || cmd->c_buf[0] == '\0')
+		if (commandRead(cmd, stream) == -1)
+			return -1;
+	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
+		free(cmd->c_buf);
+		cmd->c_argc = 0;
+		return 0;
+	}
+
 	size_t error_length = 0;
 	do {
 		// Parse Input (into tokens)
-		if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
-			free(cmd->c_buf);
-			cmd->c_argc = 0;
-			return 0;
-		}
-		if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
-			cmd->c_buf[cmd->c_len-- - 1] = '\0';
 		if (commandTokenize(cmd, cmd->c_buf)) { // Determine tokens and save them into cmd->c_argv
 			// Error parsing command.
 			original->c_len = error_length + cmd->c_len;
@@ -54,6 +68,89 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 		}
 		error_length += cmd->c_len + 1;
 
+		if (cmd->c_argv[0].type == ARG_BASIC_STRING) {
+			if (!strcmp(cmd->c_argv[0].str, "while")) {
+				Command *const while_cmd = cmd;
+				cmd->c_type = CMD_WHILE;
+				cmd->c_if_true = cmd->c_next;
+				cmd->c_next = NULL;
+
+				// Make sure we have another command following this
+				if (cmd->c_if_true == NULL) {
+					cmd->c_if_true = commandInit();
+					cmd->c_if_true->c_buf = cmd->c_buf;
+					cmd->c_if_true->c_size = cmd->c_size;
+				}
+				cmd = cmd->c_if_true;
+
+				const int parse_result = commandParse(cmd, stream);
+				if (parse_result == -1)
+					return -1;
+				if (parse_result) {
+					original->c_len = error_length + cmd->c_next->c_len;
+					return 1;
+				}
+
+				// Check if command is do
+				if (cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "do")) {
+					original->c_len = error_length;
+					return 1;
+				}
+				// Remove do argument
+				freeArg(cmd->c_argv[0]);
+				for (size_t i = 1; i < cmd->c_argc; ++i)
+					cmd->c_argv[i - 1] = cmd->c_argv[i];
+				--cmd->c_argc;
+
+				// Parse commands until one has 'done' in it.
+				for (int found_done = 0; !found_done;) {
+					if (cmd->c_next == NULL) {
+						cmd->c_next = commandInit();
+						cmd->c_next->c_buf = cmd->c_buf;
+						cmd->c_next->c_size = cmd->c_size;
+
+						const int parse_result = commandParse(cmd->c_next, stream);
+						if (parse_result == -1)
+							return -1;
+						if (parse_result) {
+							original->c_len = error_length + cmd->c_next->c_len;
+							return 1;
+						}
+					}
+					while (cmd->c_next != NULL) {
+						Command *const previous = cmd;
+						cmd = cmd->c_next;
+						if (cmd->c_argc == 0)
+							continue;
+
+						// Ignore other argument types
+						if (cmd->c_argv[0].type != ARG_BASIC_STRING)
+							continue;
+						// Ignore if not 'done'
+						if (strcmp(cmd->c_argv[0].str, "done"))
+							continue;
+
+						// Error if anything came after 'done'
+						if (cmd->c_argc != 1) {
+							original->c_len = error_length + cmd->c_len;
+							cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
+							return 1;
+						}
+
+						// Point previous to while_cmd, and while_cmd to done's next
+						previous->c_next = while_cmd;
+						if (cmd->c_next != NULL)
+							while_cmd->c_next = cmd->c_next;
+						commandFree(cmd);
+						cmd = while_cmd;
+						while (cmd->c_next != NULL)
+							cmd = cmd->c_next;
+						found_done = 1;
+						break;
+					}
+				}
+			}
+		}
 		/*else if (!strcmp(cmd->c_argv[0], "if")) {
 			cmd->c_type = CMD_BUILTIN;
 
@@ -151,6 +248,30 @@ int commandTokenize(Command *cmd, char *buf) {
 	}*/
 
 	return 0;
+}
+
+void commandFree(Command *cmd) {
+	if (cmd == NULL || cmd->c_type == CMD_FREED)
+		return;
+
+	// Stop recursive calls to commandFree from causing a double free
+	cmd->c_type = CMD_FREED;
+
+	if (cmd->c_argv != NULL) {
+		for (size_t i = 0; i < cmd->c_argc; ++i)
+			freeArg(cmd->c_argv[i]);
+		free(cmd->c_argv);
+		cmd->c_argv = NULL;
+	}
+
+	if (cmd->c_next != NULL)
+		commandFree(cmd->c_next);
+	if (cmd->c_if_true != NULL)
+		commandFree(cmd->c_if_true);
+	if (cmd->c_if_false != NULL)
+		commandFree(cmd->c_if_false);
+
+	free(cmd);
 }
 
 void freeArg(struct _arg a) {
