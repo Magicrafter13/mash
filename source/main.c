@@ -100,6 +100,8 @@ int main(int argc, char *argv[]) {
 	int cmd_stat;
 	uint8_t cmd_exit;
 
+	size_t cmd_builtin;
+
 	for (;;) {
 		if (cmd == NULL) {
 			if (last_cmd->c_type == CMD_WHILE) {
@@ -161,9 +163,14 @@ int main(int argc, char *argv[]) {
 					commandFree(cmd->c_if_false);
 				continue;
 			}
+			if (cmd->c_type == CMD_EMPTY)
+				continue;
 		}
 		else {
 			switch (cmd->c_type) {
+				case CMD_FREED:
+					fprintf(stderr, "CMD_FREED encountered!\n");
+					break;
 				case CMD_WHILE:
 					// True
 					if (!cmd_exit) {
@@ -174,6 +181,7 @@ int main(int argc, char *argv[]) {
 					// TODO WHEN YOU WAKE UP: FIGURE OUT HOW TO TELL IF WE DON'T NEED TO STORE COMMAND DATA
 					// ANYMORE SO WE CAN FREE MEMORY. MAYBE HAVE A STRUCT AND KEEP TRACK OF DEPTH FOR EACH
 					// FLOW CONTROL TYPE LIKE WHILE/FOR/IF?
+				case CMD_EMPTY:
 				case CMD_REGULAR:
 				default:
 					cmd = cmd->c_next;
@@ -224,10 +232,10 @@ int main(int argc, char *argv[]) {
 		}
 
 		// Execute builtin
-		if (suftreeHas(&builtins, e_argv[0], &cmd->c_builtin)) {
-			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd->c_builtin]);
+		if (suftreeHas(&builtins, e_argv[0], &cmd_builtin)) {
+			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
 			fflush(stderr);
-			BUILTIN_FUNCTION[cmd->c_builtin](cmd->c_argc - flow_control, (void**)e_argv);
+			BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc - flow_control, (void**)e_argv);
 
 			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
 				free(e_argv[v]);

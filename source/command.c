@@ -33,10 +33,8 @@ Command *commandInit() {
 
 int commandRead(Command *cmd, FILE *restrict stream) {
 	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, stream);
-	if (cmd->c_len == -1) {
-		//free(cmd->c_buf);
+	if (cmd->c_len == -1)
 		return -1;
-	}
 
 	if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
 		cmd->c_buf[cmd->c_len-- - 1] = '\0';
@@ -52,8 +50,9 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 		if (commandRead(cmd, stream) == -1)
 			return -1;
 	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
-		free(cmd->c_buf);
-		cmd->c_argc = 0;
+		cmd->c_buf[0] = '\0';
+		cmd->c_type = CMD_EMPTY;
+		//cmd->c_argc = 0;
 		return 0;
 	}
 
@@ -172,6 +171,8 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 }
 
 int commandTokenize(Command *cmd, char *buf) {
+	cmd->c_type = CMD_REGULAR;
+
 	cmd->c_argc = 1; // Get maximum number of possible tokens
 	for (size_t i = 0; i < cmd->c_len; i++)
 		if (buf[i] == *delim_char)

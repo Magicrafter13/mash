@@ -22,6 +22,7 @@ struct _arg {
 
 enum _cmd_type {
 	CMD_FREED,   // Type to ignore in commandFree - useful for loops where child commands will point back to the loop they are in
+	CMD_EMPTY,   // Command to ignore (comments, blank lines, etc)
 	CMD_REGULAR,
 	CMD_WHILE
 };
@@ -32,7 +33,6 @@ struct _command {
 	enum _cmd_type c_type;
 	int c_argc;
 	struct _arg * c_argv;
-	size_t c_builtin;
 	struct _command * c_next;
 	struct _command * c_if_true;
 	struct _command * c_if_false;
