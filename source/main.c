@@ -13,7 +13,7 @@
 #include "suftree.h"
 #include "command.h"
 
-char *expandArgument(struct _arg, uint8_t);
+char *expandArgument(struct _arg);
 uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
 #define BUILTIN_COUNT 3
@@ -31,6 +31,8 @@ uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 };
 
 extern char **environ;
+
+uint8_t cmd_exit;
 
 int main(int argc, char *argv[]) {
 	// Determine shell type
@@ -121,7 +123,6 @@ int main(int argc, char *argv[]) {
 
 	pid_t cmd_pid;
 	int cmd_stat;
-	uint8_t cmd_exit;
 
 	size_t cmd_builtin;
 
@@ -230,7 +231,7 @@ int main(int argc, char *argv[]) {
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];
 		for (size_t i = flow_control; i < cmd->c_argc; ++i)
-			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i], cmd_exit);
+			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i]);
 		e_argv[cmd->c_argc - flow_control] = NULL;
 		/*fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
@@ -319,7 +320,7 @@ int main(int argc, char *argv[]) {
 	return cmd_exit;
 }
 
-char *expandArgument(struct _arg arg, uint8_t cmd_exit) {
+char *expandArgument(struct _arg arg) {
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
 			return strdup(arg.str);
@@ -330,8 +331,13 @@ char *expandArgument(struct _arg arg, uint8_t cmd_exit) {
 				return strdup(number);
 			}
 			else if (!strcmp(arg.str, "?")) {
-				char number[3];
+				char number[4];
 				sprintf(number, "%"PRIu8, cmd_exit);
+				return strdup(number);
+			}
+			else if (!strcmp(arg.str, "$")) {
+				char number[21];
+				sprintf(number, "%ld", (long)getpid());
 				return strdup(number);
 			}
 
@@ -343,7 +349,7 @@ char *expandArgument(struct _arg arg, uint8_t cmd_exit) {
 				++sub_count;
 			char *argv[sub_count];
 			for (size_t i = 0; i < sub_count; ++i) {
-				char *e = expandArgument(arg.sub[i], cmd_exit);
+				char *e = expandArgument(arg.sub[i]);
 				if (e == NULL) {
 					for (size_t f = 0; f < i; ++f)
 						free(argv[f]);
