@@ -38,12 +38,16 @@ uint8_t cmd_exit;
 int main(int argc, char *argv[]) {
 	// Determine shell type
 	int login = argv[0][0] == '-';
-	fprintf(stderr, "This mash is %sa login shell.\n", login ? "" : "not ");
-	fflush(stderr);
+	if (login) {
+		fprintf(stderr, "This mash is a login shell.\n");
+		fflush(stderr);
+	}
 
 	int interactive = argc == 1 && isatty(fileno(stdin)), sourcing = 0, subshell = 0;
-	fprintf(stderr, "This mash is %sinteractive.\n", interactive ? "" : "non-");
-	fflush(stderr);
+	if (interactive) {
+		fprintf(stderr, "This mash is interactive.\n");
+		fflush(stderr);
+	}
 
 	char *subshell_cmd;
 
@@ -269,8 +273,8 @@ int main(int argc, char *argv[]) {
 
 		// Execute builtin
 		if (suftreeHas(&builtins, e_argv[0], &cmd_builtin)) {
-			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
-			fflush(stderr);
+			/*fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
+			fflush(stderr);*/
 			BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc - flow_control, (void**)e_argv);
 
 			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
@@ -324,8 +328,8 @@ exit_cleanup:
 	suftreeFree(builtins.sf_eq);
 	suftreeFree(builtins.sf_lt);
 
-	fprintf(stderr, "\n");
-	fflush(stderr);
+	/*fprintf(stderr, "\n");
+	fflush(stderr);*/
 
 	/*if (!interactive)
 		fclose(stdout);*/
