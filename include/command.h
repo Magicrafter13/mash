@@ -17,7 +17,6 @@ struct _arg {
 	union {
 		char * str;
 		struct _arg * sub;
-		struct _command * cmd;
 	};
 };
 

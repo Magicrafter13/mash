@@ -8,6 +8,11 @@ SufTree * builtins;
 
 char *(*getVarFunc)(const char*);
 
+size_t lengthRegular(char*);
+size_t lengthSingleQuote(char*);
+size_t lengthDoubleQuote(char*);
+size_t lengthRegInDouble(char *);
+size_t lengthDollarExp(char*);
 int commandTokenize(Command*, char*);
 
 void commandSetBuiltins(SufTree *b) {
@@ -268,6 +273,172 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 	return 0;
 }
 
+size_t lengthRegular(char *buf) {
+	size_t l = 0;
+	for (char c; c = buf[l], c != '\0'; ++l) {
+		switch (c) {
+			case '\'':
+			case '"':
+			case '$':
+			case ' ':
+			case '\t':
+			case '\n':
+				return l;
+			case '\\':
+				c = buf[++l];
+				switch (c) {
+					case ' ':
+					case '\\':
+						break;
+					default:
+						return l - 1;
+				}
+		}
+	}
+	return l;
+}
+size_t lengthSingleQuote(char *buf) {
+	char c;
+	if (buf[0] == '\'')
+		for (size_t l = 1; c = buf[l], c != '\0'; ++l)
+			if (c == '\'')
+				return l + 1;
+	return 0;
+}
+
+size_t lengthDoubleQuote(char *buf) {
+	if (buf[0] != '"')
+		return 0;
+	size_t l = 1;
+	for (char c; c = buf[l], c != '"'; ++l) {
+		size_t temp = 0;
+		switch (c) {
+			case '\0':
+				temp = 0;
+				break;
+			case '$':
+				temp = lengthDollarExp(&buf[l]);
+				break;
+			default:
+				temp = lengthRegInDouble(&buf[l]);
+				break;
+		}
+		if (temp == 0)
+			return 0;
+		l += temp;
+	}
+	return l;
+}
+
+size_t lengthRegInDouble(char *buf) {
+	size_t l = 0;
+	for (char c; c = buf[l], c != '"'; ++l) {
+		switch (c) {
+			case '\0':
+				return 0;
+			case '\\':
+				++l;
+				break;
+			case '$':
+				return l;
+		}
+	}
+	return l;
+}
+
+size_t lengthDollarExp(char *buf) {
+	if (buf[0] != '$')
+		return 0;
+	size_t l = 1;
+	for (char c; c = buf[l], c != '\0'; ++l) {
+		switch (c) {
+			case '$':
+			case '?':
+				return l > 1 ? l : 2;
+			case '(':
+				if (l > 1)
+					return l;
+				++l;
+				while (c = buf[l], c != ')') {
+					size_t temp = 1;
+					switch (c) {
+						case '\0':
+							temp = 0;
+							break;
+						case '\'':
+							temp = lengthSingleQuote(&buf[l]);
+							break;
+						case '$':
+							temp = lengthDollarExp(&buf[l]);
+							break;
+						case '"':
+							temp = lengthDoubleQuote(&buf[l]);
+							break;
+					}
+					if (temp == 0)
+						return 0;
+					l += temp;
+				}
+				return l + 1;
+			default:
+				if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
+					continue;
+				return l;
+		}
+	}
+	return l;
+}
+
+struct _arg extractArg(char *buf) {
+	// Determine type
+	enum _arg_type type = ARG_BASIC_STRING;
+	size_t end = 0;
+	for (char c; c = buf[end], c != '\0'; ++end) {
+		switch (c) {
+			case '\'':
+				if (end == 0) {
+					do {
+						c = buf[++end];
+						if (c == '\0') // Missing closing ', so return NULL?
+							return (struct _arg){ .type = ARG_NULL };
+					}
+					while (c != '\'');
+					// We'll keep the type as BASIC_STRING unless there's something *after* the closing '
+					break;
+				}
+				type = ARG_COMPLEX_STRING;
+				break;
+			case '$':
+				if (end == 0) {
+					c = buf[++end];
+					switch (c) {
+						case '\0':
+							return (struct _arg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
+						case '(':
+
+						case '$':
+						case '?':
+							type = ARG_VARIABLE;
+							break;
+						default:
+							if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'A') || (c >= '0' && c <= '9') || c == '_')
+								type = ARG_VARIABLE;
+							break;
+					}
+					break;
+				}
+				type = ARG_COMPLEX_STRING;
+				break;
+		}
+		// This needs to happen after the switch
+		if (c == ' ' || c == '\n' || c == '\t' || c == ';' || c == ')') {
+			--end;
+			break;
+		}
+	}
+	// Now we have the type, and the index after the final character
+}
+
 int commandTokenize(Command *cmd, char *buf) {
 	cmd->c_type = CMD_REGULAR;
 
@@ -277,88 +448,157 @@ int commandTokenize(Command *cmd, char *buf) {
 			cmd->c_argc++;
 
 	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (struct _arg));
+	for (size_t i = 0; i < cmd->c_argc + 1; ++i)
+		cmd->c_argv[i].type = ARG_NULL;
 
 	cmd->c_argc = 0;
-	//char temp_buf[512];
-	int semicolon = 0;
-	size_t current = 0;
-	for (size_t next = 0, start; current <= cmd->c_len && !semicolon; current++) {
+	int done = 0, semicolon = 0, inDoubleQuote = 0;
+	size_t current;
+	for (current = 0; current <= cmd->c_len && !done; current++) {
 		switch (buf[current]) {
+			case '\'': {
+				if (inDoubleQuote)
+					goto stupid_single_quote_goto;
+				size_t quote_len = lengthSingleQuote(&buf[current]);
+				// TODO: HANDLE UNCLOSED QUOTE!
+				/*if (quote_len == 0) {
+					// do what?
+				}*/
+				struct _arg new_arg = { .type = ARG_BASIC_STRING, .str = strndup(&buf[current + 1], quote_len - 2) };
+				struct _arg *cur_arg = &cmd->c_argv[cmd->c_argc];
+				switch (cur_arg->type) {
+					case ARG_NULL:
+						*cur_arg = new_arg;
+						break;
+					case ARG_COMPLEX_STRING: {
+						size_t arr_len = 0;
+						while (cur_arg->sub[arr_len].type != ARG_NULL)
+							++arr_len;
+						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (struct _arg));
+						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
+						cur_arg->sub[arr_len] = new_arg;
+						break;
+					}
+					default: {
+						struct _arg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (struct _arg)) };
+						new_complex.sub[0] = *cur_arg;
+						new_complex.sub[1] = new_arg;
+						new_complex.sub[2] = (struct _arg){ .type = ARG_NULL };
+						*cur_arg = new_complex;
+					}
+				}
+
+				current += quote_len - 1;
+				break;
+			}
+			case '"':
+				inDoubleQuote = inDoubleQuote ? 0 : 1;
+				break;
+			case '$': {
+				size_t dollar_len = lengthDollarExp(&buf[current]);
+				struct _arg new_arg;
+				if (dollar_len == 1) {
+					new_arg = (struct _arg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
+				}
+				else {
+					if (buf[current + 1] == '(')
+						new_arg = (struct _arg){ .type = ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
+					else
+						new_arg = (struct _arg){ .type = ARG_VARIABLE, .str = strndup(&buf[current + 1], dollar_len - 1) };
+				}
+				// TODO: HANDLE BAD DOLLAR EXP
+				struct _arg *cur_arg = &cmd->c_argv[cmd->c_argc];
+				switch (cur_arg->type) {
+					case ARG_NULL:
+						*cur_arg = new_arg;
+						break;
+					case ARG_COMPLEX_STRING: {
+						size_t arr_len = 0;
+						while (cur_arg->sub[arr_len].type != ARG_NULL)
+							++arr_len;
+						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (struct _arg));
+						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
+						cur_arg->sub[arr_len] = new_arg;
+						break;
+					}
+					default: {
+						struct _arg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (struct _arg)) };
+						new_complex.sub[0] = *cur_arg;
+						new_complex.sub[1] = new_arg;
+						new_complex.sub[2] = (struct _arg){ .type = ARG_NULL };
+						*cur_arg = new_complex;
+					}
+				}
+
+				current += dollar_len - 1;
+				break;
+			}
 			case ';': // End of this command
 				if (current == 0) {
 					cmd->c_len = 0;
 					return -1;
 				}
 				semicolon = 1;
-			case ' ': // can't use delim_char...
-				buf[current] = '\0';
 			case '\0':
-				if (current == next) {
-					next = current + 1;
-					continue;
+				done = 1;
+			case ' ': // can't use delim_char...
+			case '\t':
+			case '\n':
+				if (!inDoubleQuote) {
+					if (cmd->c_argv[cmd->c_argc].type != ARG_NULL)
+						++cmd->c_argc;
+					break;
 				}
-				cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[next], current - next)};
-				next = current + 1;
-				break;
-			case '\'':
-				start = current;
-				while (buf[++current] != '\'');
-				cmd->c_argv[cmd->c_argc++] = (struct _arg) { .type = ARG_BASIC_STRING, .str = strndup(&buf[start + 1], current - start - 1) };
-				next = current + 1;
-				break;
-			case '$':
-				start = ++current;
-				// Subshell (or math?)
-				if (buf[current] == '(') {
-					// TODO: Make this more advanced. This doesn't allow for nested () pairs...
-					start = ++current;
-					while (buf[current] != ')' && buf[current] != '\0')
-						++current;
-					if (buf[current] == '\0')
-						return -1;
-					buf[current] = '\0';
-					cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_SUBSHELL, .str = strdup(&buf[start]) };
+				if (done) {
+					if (!semicolon)
+						break;
+					done = semicolon = 0;
 				}
-				// Environment Variable
-				else {
-					while (buf[current] != ' ' && buf[current] != '\0')
-						++current;
-					buf[current] = '\0';
-					cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_VARIABLE, .str = strdup(&buf[start]) };
+			default: {
+stupid_single_quote_goto:;
+				size_t reg_len = inDoubleQuote ? lengthRegInDouble(&buf[current]) : lengthRegular(&buf[current]);
+				struct _arg new_arg = (struct _arg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[current], reg_len) };
+				// TODO: HANDLE 0?
+				struct _arg *cur_arg = &cmd->c_argv[cmd->c_argc];
+				switch (cur_arg->type) {
+					case ARG_NULL:
+						*cur_arg = new_arg;
+						break;
+					case ARG_COMPLEX_STRING: {
+						size_t arr_len = 0;
+						while (cur_arg->sub[arr_len].type != ARG_NULL)
+							++arr_len;
+						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (struct _arg));
+						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
+						cur_arg->sub[arr_len] = new_arg;
+						break;
+					}
+					default: {
+						struct _arg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (struct _arg)) };
+						new_complex.sub[0] = *cur_arg;
+						new_complex.sub[1] = new_arg;
+						new_complex.sub[2] = (struct _arg){ .type = ARG_NULL };
+						*cur_arg = new_complex;
+					}
 				}
-				next = current + 1;
+
+				current += reg_len - 1;
 				break;
+			}
 		}
 	}
-	cmd->c_argv[cmd->c_argc].type = ARG_NULL;
+	--current;
 
 	if (semicolon)
 		++current;
-	memmove(buf, &buf[current - 1], cmd->c_len - current + 2);
+	memmove(buf, &buf[current], cmd->c_len - current + 1);
 	if (semicolon) {
 		cmd->c_next = commandInit();
 		cmd->c_next->c_buf = cmd->c_buf;
 		cmd->c_next->c_size = cmd->c_size;
-		cmd->c_next->c_len = cmd->c_len - current + 1;
-		cmd->c_len = current - 2;
-		/*cmd->c_next->c_len = cmd->c_len - current + 1;
-		cmd->c_len = current - 2;*/
+		cmd->c_next->c_len -= current;
+		cmd->c_len = current;
 	}
-
-	/*size_t i = 0;
-	for (size_t t = 0; t < cmd->c_argc; t++) {
-		switch (cmd->c_buf[i]) {
-			case '\'':
-				cmd->c_argv[t] = &cmd->c_buf[i + 1];
-				cmd->c_buf[token_ends[t] - 1] = '\0';
-				break;
-			default:
-				cmd->c_argv[t] = &cmd->c_buf[i];
-				cmd->c_buf[token_ends[t]] = '\0';
-				break;
-		}
-		i = token_ends[t] + 1;
-	}*/
 
 	return 0;
 }
@@ -397,6 +637,7 @@ void freeArg(struct _arg a) {
 		case ARG_COMPLEX_STRING:
 			for (size_t i = 0; a.sub[i].type != ARG_NULL; ++i)
 				freeArg(a.sub[i]);
+			free(a.sub);
 			break;
 		case ARG_NULL:
 		default:
