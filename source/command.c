@@ -308,10 +308,24 @@ int commandTokenize(Command *cmd, char *buf) {
 				break;
 			case '$':
 				start = ++current;
-				while (buf[current] != ' ' && buf[current] != '\0')
-					current++;
-				buf[current] = '\0';
-				cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_VARIABLE, .str = strdup(&buf[start]) };
+				// Subshell (or math?)
+				if (buf[current] == '(') {
+					// TODO: Make this more advanced. This doesn't allow for nested () pairs...
+					start = ++current;
+					while (buf[current] != ')' && buf[current] != '\0')
+						++current;
+					if (buf[current] == '\0')
+						return -1;
+					buf[current] = '\0';
+					cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_SUBSHELL, .str = strdup(&buf[start]) };
+				}
+				// Environment Variable
+				else {
+					while (buf[current] != ' ' && buf[current] != '\0')
+						++current;
+					buf[current] = '\0';
+					cmd->c_argv[cmd->c_argc++] = (struct _arg){ .type = ARG_VARIABLE, .str = strdup(&buf[start]) };
+				}
 				next = current + 1;
 				break;
 		}
@@ -377,6 +391,7 @@ void freeArg(struct _arg a) {
 	switch (a.type) {
 		case ARG_BASIC_STRING:
 		case ARG_VARIABLE:
+		case ARG_SUBSHELL:
 			free(a.str);
 			break;
 		case ARG_COMPLEX_STRING:

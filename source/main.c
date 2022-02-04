@@ -32,6 +32,7 @@ uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 
 extern char **environ;
 
+int cmd_stat;
 uint8_t cmd_exit;
 
 int main(int argc, char *argv[]) {
@@ -97,6 +98,7 @@ int main(int argc, char *argv[]) {
 							break;
 						default:
 							fprintf(stderr, "Unrecognized option '%c', ignoring.\n", c);
+							fflush(stderr);
 					}
 				}
 			}
@@ -122,7 +124,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	pid_t cmd_pid;
-	int cmd_stat;
 
 	size_t cmd_builtin;
 
@@ -187,6 +188,7 @@ int main(int argc, char *argv[]) {
 			if (parse_result) {
 				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
 				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]);
+				fflush(stderr);
 				cmd->c_buf[0] = '\0';
 				cmd = NULL;
 				continue;
@@ -196,6 +198,7 @@ int main(int argc, char *argv[]) {
 			switch (cmd->c_type) {
 				case CMD_FREED:
 					fprintf(stderr, "CMD_FREED encountered!\n");
+					fflush(stderr);
 					break;
 				case CMD_WHILE:
 					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_next;
@@ -230,8 +233,15 @@ int main(int argc, char *argv[]) {
 				flow_control = 1;
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];
-		for (size_t i = flow_control; i < cmd->c_argc; ++i)
-			e_argv[i - flow_control] = expandArgument(cmd->c_argv[i]);
+		for (size_t i = flow_control; i < cmd->c_argc; ++i) {
+			char *full_arg = expandArgument(cmd->c_argv[i]);
+			if (full_arg == NULL) {
+				for (size_t e = 0; e < i; ++e)
+					free(e_argv[e]);
+				goto exit_cleanup; // Screw it, I'm using a goto and you can't stop me.
+			}
+			e_argv[i - flow_control] = full_arg;
+		}
 		e_argv[cmd->c_argc - flow_control] = NULL;
 		/*fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
@@ -298,6 +308,8 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+exit_cleanup:
+
 	if (!subshell && cmd->c_buf != NULL)
 		free(cmd->c_buf);
 	commandFree(cmd);
@@ -343,6 +355,71 @@ char *expandArgument(struct _arg arg) {
 
 			char *value = getenv(arg.str);
 			return strdup(value == NULL ? "" : value);
+		case ARG_SUBSHELL: {
+			char template[17] = "/tmp/mash.XXXXXX"; // TODO: instead of hardcoding /tmp, first try to read $TMPDIR
+			int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
+			if (sub_stdout == -1) {
+				fprintf(stderr, "%m\n");
+				fflush(stderr);
+				return NULL;
+			}
+			pid_t subshell_pid = fork();
+			// Run subshell
+			if (subshell_pid == 0) {
+				dup2(sub_stdout, STDOUT_FILENO);
+				close(STDIN_FILENO);
+				char *argv[4] = {
+					"mash", // "/proc/self/exe"
+					"-c",
+					arg.str,
+					NULL
+				};
+				int err = main(3, argv);
+				/*execvp(argv[0], argv);
+				fprintf(stderr, "%m\n");
+				fflush(stderr);*/
+
+				close(sub_stdout);
+
+				errno = err;
+				return NULL;
+			}
+			// Wait for subshell to finish,
+			waitpid(subshell_pid, &cmd_stat, 0);
+			cmd_exit = WEXITSTATUS(cmd_stat);
+
+			// Allocate memory for the file
+			off_t size = lseek(sub_stdout, 0, SEEK_END);
+			lseek(sub_stdout, 0, SEEK_SET);
+			char *sub_output = calloc(size + 1, sizeof (char));
+			size_t out_end = 0;
+			char buffer[512];
+			memset(buffer, 0, 512);
+			int read_return;
+			// TODO: if a word is caught on the 512 byte boundary it will be split into 2 arguments - need to fix this (and already know how...)
+			while ((read_return = read(sub_stdout, buffer, 512)) > 0 ) {
+				for (size_t i = 0; i < read_return; ++i) {
+					int whitespace = 0;
+					while (buffer[i] == '\n' || buffer[i] == '\t' || buffer[i] == ' ') {
+						whitespace = 1;
+						++i;
+					}
+					if (whitespace && out_end > 0) {
+						if (i >= read_return)
+							continue;
+						sub_output[out_end++] = ' ';
+					}
+					sub_output[out_end++] = buffer[i];
+				}
+			}
+			close(sub_stdout);
+			unlink(template); // TODO: consider stdio's tmpfile?
+			if (out_end > 0 && sub_output[out_end - 1] == ' ')
+				--out_end;
+			//while (out_end < size)
+			sub_output[out_end] = '\0';
+			return sub_output;
+		}
 		case ARG_COMPLEX_STRING: {
 			size_t sub_count = 0;
 			while (arg.sub[sub_count].type != ARG_NULL)

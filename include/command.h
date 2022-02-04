@@ -8,7 +8,7 @@ enum _arg_type {
 	ARG_NULL,
 	ARG_BASIC_STRING,
 	ARG_VARIABLE,
-	//ARG_SUBSHELL, if/when $() is implemented
+	ARG_SUBSHELL,
 	ARG_COMPLEX_STRING
 };
 
@@ -17,6 +17,7 @@ struct _arg {
 	union {
 		char * str;
 		struct _arg * sub;
+		struct _command * cmd;
 	};
 };
 
