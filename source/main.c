@@ -360,13 +360,28 @@ char *expandArgument(struct _arg arg) {
 			char *value = getenv(arg.str);
 			return strdup(value == NULL ? "" : value);
 		case ARG_SUBSHELL: {
-			char template[17] = "/tmp/mash.XXXXXX"; // TODO: instead of hardcoding /tmp, first try to read $TMPDIR
+			size_t path_size = 0;
+			char *temp_dir = getenv("TMPDIR");
+			if (temp_dir == NULL)
+				path_size = 17;
+			else
+				path_size = strlen(temp_dir) + 13;
+
+			char template[path_size]; // TODO: instead of hardcoding /tmp, first try to read $TMPDIR
+			template[0] = '\0';
+			if (temp_dir == NULL)
+				strcat(template, "/tmp");
+			else
+				strcat(template, temp_dir);
+			strcat(template, "/mash.XXXXXX");
+
 			int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
 			if (sub_stdout == -1) {
 				fprintf(stderr, "%m\n");
 				fflush(stderr);
 				return NULL;
 			}
+
 			pid_t subshell_pid = fork();
 			// Run subshell
 			if (subshell_pid == 0) {
@@ -511,28 +526,6 @@ uint8_t cd(size_t argc, void **ptr) {
 		int err = errno;
 		fprintf(stderr, "%m\n");
 		return err;
-	}
-
-	return 0;
-}
-
-uint8_t mash_if(size_t argc, void **ptr) {
-	Command **cmds = (Command**)ptr;
-
-	// Condition to test
-	Command *test = cmds[0];
-
-	// Run test
-
-	// If condition was true
-	if (1) {
-		for (size_t i = 1; i < argc; ++i) {
-		}
-	}
-	// If condition was false
-	else {
-		for (size_t i = argc; cmds[i] != NULL; ++i) {
-		}
 	}
 
 	return 0;

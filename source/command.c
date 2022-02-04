@@ -389,56 +389,6 @@ size_t lengthDollarExp(char *buf) {
 	return l;
 }
 
-struct _arg extractArg(char *buf) {
-	// Determine type
-	enum _arg_type type = ARG_BASIC_STRING;
-	size_t end = 0;
-	for (char c; c = buf[end], c != '\0'; ++end) {
-		switch (c) {
-			case '\'':
-				if (end == 0) {
-					do {
-						c = buf[++end];
-						if (c == '\0') // Missing closing ', so return NULL?
-							return (struct _arg){ .type = ARG_NULL };
-					}
-					while (c != '\'');
-					// We'll keep the type as BASIC_STRING unless there's something *after* the closing '
-					break;
-				}
-				type = ARG_COMPLEX_STRING;
-				break;
-			case '$':
-				if (end == 0) {
-					c = buf[++end];
-					switch (c) {
-						case '\0':
-							return (struct _arg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
-						case '(':
-
-						case '$':
-						case '?':
-							type = ARG_VARIABLE;
-							break;
-						default:
-							if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'A') || (c >= '0' && c <= '9') || c == '_')
-								type = ARG_VARIABLE;
-							break;
-					}
-					break;
-				}
-				type = ARG_COMPLEX_STRING;
-				break;
-		}
-		// This needs to happen after the switch
-		if (c == ' ' || c == '\n' || c == '\t' || c == ';' || c == ')') {
-			--end;
-			break;
-		}
-	}
-	// Now we have the type, and the index after the final character
-}
-
 int commandTokenize(Command *cmd, char *buf) {
 	cmd->c_type = CMD_REGULAR;
 
