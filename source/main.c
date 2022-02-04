@@ -359,7 +359,8 @@ char *expandArgument(struct _arg arg) {
 
 			char *value = getenv(arg.str);
 			return strdup(value == NULL ? "" : value);
-		case ARG_SUBSHELL: {
+		case ARG_SUBSHELL:
+		case ARG_QUOTED_SUBSHELL: {
 			size_t path_size = 0;
 			char *temp_dir = getenv("TMPDIR");
 			if (temp_dir == NULL)
@@ -417,23 +418,31 @@ char *expandArgument(struct _arg arg) {
 			int read_return;
 			// TODO: if a word is caught on the 512 byte boundary it will be split into 2 arguments - need to fix this (and already know how...)
 			while ((read_return = read(sub_stdout, buffer, 512)) > 0 ) {
-				for (size_t i = 0; i < read_return; ++i) {
-					int whitespace = 0;
-					while (buffer[i] == '\n' || buffer[i] == '\t' || buffer[i] == ' ') {
-						whitespace = 1;
-						++i;
+				// Regular subshells replace newlines and tabs with spaces, and truncate all spaces longer than 1.
+				if (arg.type == ARG_SUBSHELL) {
+					for (size_t i = 0; i < read_return; ++i) {
+						int whitespace = 0;
+						while (buffer[i] == '\n' || buffer[i] == '\t' || buffer[i] == ' ') {
+							whitespace = 1;
+							++i;
+						}
+						if (whitespace && out_end > 0) {
+							if (i >= read_return)
+								continue;
+							sub_output[out_end++] = ' ';
+						}
+						sub_output[out_end++] = buffer[i];
 					}
-					if (whitespace && out_end > 0) {
-						if (i >= read_return)
-							continue;
-						sub_output[out_end++] = ' ';
-					}
-					sub_output[out_end++] = buffer[i];
+				}
+				// But quoted subshells allow you to get the exact output from the command, unchanged
+				else {
+					strncpy(&sub_output[out_end], buffer, read_return);
+					out_end += read_return;
 				}
 			}
 			close(sub_stdout);
 			unlink(template); // TODO: consider stdio's tmpfile?
-			if (out_end > 0 && sub_output[out_end - 1] == ' ')
+			if (out_end > 0 && (sub_output[out_end - 1] == ' ' || sub_output[out_end - 1] == '\n'))
 				--out_end;
 			//while (out_end < size)
 			sub_output[out_end] = '\0';

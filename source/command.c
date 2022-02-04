@@ -452,7 +452,7 @@ int commandTokenize(Command *cmd, char *buf) {
 				}
 				else {
 					if (buf[current + 1] == '(')
-						new_arg = (struct _arg){ .type = ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
+						new_arg = (struct _arg){ .type = inDoubleQuote ? ARG_QUOTED_SUBSHELL : ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
 					else
 						new_arg = (struct _arg){ .type = ARG_VARIABLE, .str = strndup(&buf[current + 1], dollar_len - 1) };
 				}
@@ -582,6 +582,7 @@ void freeArg(struct _arg a) {
 		case ARG_BASIC_STRING:
 		case ARG_VARIABLE:
 		case ARG_SUBSHELL:
+		case ARG_QUOTED_SUBSHELL:
 			free(a.str);
 			break;
 		case ARG_COMPLEX_STRING:
