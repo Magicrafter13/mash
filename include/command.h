@@ -42,15 +42,13 @@ struct _command {
 
 typedef struct _command Command;
 
-void commandSetBuiltins(SufTree*);
-
-void commandSetVarFunc(char *(*)(const char*));
-
 Command *commandInit();
 
 int commandRead(Command*, FILE*);
 
 int commandParse(Command*, FILE*);
+
+struct _arg argdup(struct _arg);
 
 void commandFree(Command*);
 

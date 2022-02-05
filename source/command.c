@@ -4,24 +4,12 @@
 
 char * const delim_char = " ";
 
-SufTree * builtins;
-
-char *(*getVarFunc)(const char*);
-
 size_t lengthRegular(char*);
 size_t lengthSingleQuote(char*);
 size_t lengthDoubleQuote(char*);
 size_t lengthRegInDouble(char *);
 size_t lengthDollarExp(char*);
 int commandTokenize(Command*, char*);
-
-void commandSetBuiltins(SufTree *b) {
-	builtins = b;
-}
-
-void commandSetVarFunc(char *(*func)(const char*)) {
-	getVarFunc = func;
-}
 
 Command *commandInit() {
 	struct _command *new_command = malloc(sizeof (Command));
@@ -551,6 +539,26 @@ stupid_single_quote_goto:;
 	}
 
 	return 0;
+}
+
+struct _arg argdup(struct _arg a) {
+	switch (a.type) {
+		case ARG_BASIC_STRING:
+		case ARG_VARIABLE:
+		case ARG_SUBSHELL:
+		case ARG_QUOTED_SUBSHELL:
+			return (struct _arg){ .type = a.type, .str = strdup(a.str) };
+		case ARG_COMPLEX_STRING: {
+			size_t sub_len = 0;
+			while (a.sub[sub_len++].type != ARG_NULL);
+			struct _arg new_arg = { .type = ARG_COMPLEX_STRING, .sub = calloc(sub_len, sizeof (struct _arg)) };
+			for (size_t i = 0; i <= sub_len; ++i)
+				new_arg.sub[i] = argdup(a.sub[i]);
+			return new_arg;
+		}
+		case ARG_NULL:
+			return (struct _arg){ .type = ARG_NULL };
+	}
 }
 
 void commandFree(Command *cmd) {

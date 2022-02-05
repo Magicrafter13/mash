@@ -30,6 +30,14 @@ uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 	cd
 };
 
+struct _alias {
+	char *name;
+	char *str;
+	int argc;
+	struct _arg *args;
+};
+typedef struct _alias Alias;
+
 extern char **environ;
 
 int cmd_stat;
@@ -53,11 +61,18 @@ int main(int argc, char *argv[]) {
 
 	// Initialize
 	srandom(time(NULL));
-	SufTree builtins = suftreeInit(BUILTIN[0], 0);
+	SufTree builtins = suftreeInit(BUILTIN[0], 0), aliases = suftreeInit("mmmm", 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
-	commandSetBuiltins(&builtins);
-	commandSetVarFunc(&getenv);
+	size_t alias_count = 1;
+	Alias *alias = malloc(sizeof (Alias));
+	// TODO it's really stupid that we need at least one thing in the tree... should probably fix that but I'm lazy :)
+	alias[0].name = strdup("mmmm");
+	alias[0].str = strdup("mmmm");
+	alias[0].argc = 1;
+	alias[0].args = calloc(2, sizeof (struct _arg));
+	alias[0].args[0] = (struct _arg){ .type = ARG_BASIC_STRING, .str = strdup("mmmm") };
+	alias[0].args[1] = (struct _arg){ .type = ARG_NULL };
 
 	FILE *input_source = stdin;
 
@@ -235,6 +250,22 @@ int main(int argc, char *argv[]) {
 		if (cmd->c_argv[0].type == ARG_BASIC_STRING)
 			if (!strcmp(cmd->c_argv[0].str, "while") || !strcmp(cmd->c_argv[0].str, "if"))
 				flow_control = 1;
+		// Check if first arg is an alias
+		size_t index;
+		if (cmd->c_argv[0].type == ARG_BASIC_STRING && suftreeHas(&aliases, cmd->c_argv[0].str, &index)) {
+			fprintf(stderr, "Detected alias, parsing...\n");
+
+			int temp_argc = cmd->c_argc;
+			cmd->c_argc += alias[index].argc - 1;
+			cmd->c_argv = reallocarray(cmd->c_argv, cmd->c_argc + 1, sizeof (struct _arg));
+			cmd->c_argv[cmd->c_argc] = cmd->c_argv[temp_argc]; // Copy ARG_NULL
+			// Delete alias arg and shift remaining args
+			freeArg(cmd->c_argv[0]);
+			for (size_t i = 0; i < temp_argc - 1; ++i)
+				cmd->c_argv[cmd->c_argc - 1 - i] = cmd->c_argv[temp_argc - 1 - i];
+			for (size_t i = 0; i < alias[index].argc; ++i)
+				cmd->c_argv[i] = argdup(alias[index].args[i]);
+		}
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];
 		for (size_t i = flow_control; i < cmd->c_argc; ++i) {
@@ -247,10 +278,76 @@ int main(int argc, char *argv[]) {
 			e_argv[i - flow_control] = full_arg;
 		}
 		e_argv[cmd->c_argc - flow_control] = NULL;
+
 		/*fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			fprintf(stderr, "%s ", e_argv[i]);
 		fprintf(stderr, "\n");*/
+
+		// Check for alias
+		if (!strcmp(e_argv[0], "alias")) {
+			cmd_exit = 0;
+			// List all aliases
+			if (e_argv[1] == NULL)
+				for (size_t i = 0; i < alias_count; ++i)
+					fprintf(stdout, "%s=%s\n", alias[i].name, alias[i].args[0].str);
+			// List or set one alias
+			else {
+				char *equal_addr = strchr(e_argv[1], '=');
+				size_t index;
+
+				// No equal sign, means to show an alias
+				if (equal_addr == NULL) {
+					if (suftreeHas(&aliases, e_argv[1], &index))
+						fprintf(stdout, "%s=%s\n", alias[index].name, alias[index].str);
+					else
+						cmd_exit = 1;
+					for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+						free(e_argv[v]);
+					continue;
+				}
+
+				size_t equals = equal_addr - e_argv[1];
+				// Nothing to the left of the equal sign
+				if (equals == 0) {
+					cmd_exit = 1;
+					for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+						free(e_argv[v]);
+					continue;
+				}
+
+				e_argv[1][equals] = '\0';
+				char *a_str = strdup(&e_argv[1][equals + 1]);
+				// Alias already exists, so we only need to change its args
+				if (suftreeHas(&aliases, e_argv[1], &index)) {
+					free(alias[index].str);
+					for (size_t i = 0; i <= alias[index].argc; ++i)
+						freeArg(alias[index].args[i]);
+					free(alias[index].args);
+				}
+				// New alias
+				else {
+					char *a_name = strdup(e_argv[1]);
+					suftreeAdd(&aliases, a_name, alias_count);
+					alias = reallocarray(alias, alias_count + 1, sizeof (Alias));
+					index = alias_count++;
+					alias[index].name = a_name;
+				}
+
+				alias[index].str = a_str;
+
+				// Parse string into args (so we don't have to do that every single time the alias is called)
+				Command temp;
+				temp.c_size = (temp.c_len = strlen(a_str)) + 1;
+				temp.c_buf = a_str;
+				commandParse(&temp, NULL);
+				alias[index].argc = temp.c_argc;
+				alias[index].args = temp.c_argv;
+			}
+			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+				free(e_argv[v]);
+			continue;
+		}
 
 		// Exit shell
 		if (!strcmp(e_argv[0], "exit")) {
@@ -323,6 +420,19 @@ exit_cleanup:
 
 	if (interactive)
 		free(config_file);
+
+	for (size_t i = 0; i < alias_count; ++i) {
+		for (size_t a = 0; a <= alias[i].argc; ++a)
+			freeArg(alias[i].args[a]);
+		free(alias[i].args);
+		free(alias[i].str);
+		free(alias[i].name);
+	}
+	free(alias);
+
+	suftreeFree(aliases.sf_gt);
+	suftreeFree(aliases.sf_eq);
+	suftreeFree(aliases.sf_lt);
 
 	suftreeFree(builtins.sf_gt);
 	suftreeFree(builtins.sf_eq);
@@ -529,6 +639,7 @@ uint8_t help(size_t argc, void **ptr) {
 }
 
 uint8_t cd(size_t argc, void **ptr) {
+	// TODO go to home dir when no args are given
 	char **argv = (char**)ptr;
 
 	if (chdir(argv[1]) == -1) {
