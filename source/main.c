@@ -252,9 +252,8 @@ int main(int argc, char *argv[]) {
 				flow_control = 1;
 		// Check if first arg is an alias
 		size_t index;
+check_alias:
 		if (cmd->c_argv[0].type == ARG_BASIC_STRING && suftreeHas(&aliases, cmd->c_argv[0].str, &index)) {
-			fprintf(stderr, "Detected alias, parsing...\n");
-
 			int temp_argc = cmd->c_argc;
 			cmd->c_argc += alias[index].argc - 1;
 			cmd->c_argv = reallocarray(cmd->c_argv, cmd->c_argc + 1, sizeof (struct _arg));
@@ -265,6 +264,9 @@ int main(int argc, char *argv[]) {
 				cmd->c_argv[cmd->c_argc - 1 - i] = cmd->c_argv[temp_argc - 1 - i];
 			for (size_t i = 0; i < alias[index].argc; ++i)
 				cmd->c_argv[i] = argdup(alias[index].args[i]);
+			// Check if new argv[0] is the same as the alias name. If not, run through again. (Can't use while loop, since it's perfectly normal to alias ls to ls (but with extra args).)
+			if (cmd->c_argv[0].type == ARG_BASIC_STRING && strcmp(cmd->c_argv[0].str, alias[index].name))
+				goto check_alias;
 		}
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];
