@@ -13,6 +13,9 @@
 #include "suftree.h"
 #include "command.h"
 
+#define _VMAJOR 1
+#define _VMINOR 0
+
 char *expandArgument(struct _arg);
 uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
@@ -99,7 +102,8 @@ int main(int argc, char *argv[]) {
 			if (input_source == NULL) {
 				fprintf(stderr, "%m\n");
 				fflush(stderr);
-				return errno;
+				cmd_exit = errno;
+				goto exit_cleanup;
 			}
 		}
 	}
@@ -107,17 +111,26 @@ int main(int argc, char *argv[]) {
 		if (argc > 1) {
 			// Check what type of argument was passed
 			if (argv[1][0] == '-') {
+				// Long argument
+				if (argv[1][1] == '-') {
+					if (!strcmp(&argv[1][2], "version")) {
+						fprintf(stdout, "mash %u.%u\n", _VMAJOR, _VMINOR);
+						goto exit_cleanup;
+					}
+				}
 				// Regular argument
-				char c;
-				for (size_t i = 1; c = argv[1][i], c != '\0'; ++i) {
-					switch (c) {
-						case 'c':
-							subshell = 1;
-							subshell_cmd = argv[2];
-							break;
-						default:
-							fprintf(stderr, "Unrecognized option '%c', ignoring.\n", c);
-							fflush(stderr);
+				else {
+					char c;
+					for (size_t i = 1; c = argv[1][i], c != '\0'; ++i) {
+						switch (c) {
+							case 'c':
+								subshell = 1;
+								subshell_cmd = argv[2];
+								break;
+							default:
+								fprintf(stderr, "Unrecognized option '%c', ignoring.\n", c);
+								fflush(stderr);
+						}
 					}
 				}
 			}
@@ -127,7 +140,8 @@ int main(int argc, char *argv[]) {
 				if (input_source == NULL) {
 					fprintf(stderr, "%m\n");
 					fflush(stderr);
-					return errno;
+					cmd_exit = errno;
+					goto exit_cleanup;
 				}
 			}
 		}
@@ -275,6 +289,8 @@ check_alias:
 			if (full_arg == NULL) {
 				for (size_t e = 0; e < i; ++e)
 					free(e_argv[e]);
+				free(last_cmd->c_buf);
+				commandFree(last_cmd);
 				goto exit_cleanup; // Screw it, I'm using a goto and you can't stop me.
 			}
 			e_argv[i - flow_control] = full_arg;
@@ -411,11 +427,11 @@ check_alias:
 		}
 	}
 
-exit_cleanup:
+	if (!subshell && last_cmd->c_buf != NULL)
+		free(last_cmd->c_buf);
+	commandFree(last_cmd);
 
-	if (!subshell && cmd->c_buf != NULL)
-		free(cmd->c_buf);
-	commandFree(cmd);
+exit_cleanup:
 
 	if (sourcing)
 		fclose(input_source);
