@@ -1,5 +1,10 @@
 #include "compatibility.h"
 
+// Really stupid thing for Android
+#if !defined(__GLIBC__) && defined(__BIONIC__)
+#define __GLIBC__ 3
+#endif
+
 // reallocarray (realloc with extra safety check)
 #if (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26))
 #include <errno.h>

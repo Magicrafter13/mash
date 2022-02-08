@@ -18,3 +18,5 @@ hashTable *tableAdd(hashTable*, unsigned long long*, char*, struct strhash**);
 
 // Search hash table for a string
 struct strhash *tableSearch(hashTable*, unsigned long long, char*);
+
+hashTable *tableRemove(hashTable*, unsigned long long*, char*);

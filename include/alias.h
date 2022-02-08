@@ -26,6 +26,8 @@ void aliasResolve(AliasMap*, Command*);
 
 Alias *aliasAdd(AliasMap*, char*, char*);
 
+int aliasRemove(AliasMap*, char*);
+
 int aliasPrint(AliasMap*, char*, FILE *restrict);
 
 void aliasList(AliasMap*, FILE *restrict);

@@ -58,6 +58,23 @@ struct node *search(struct node *ll, unsigned long long hash, char *str) {
 	return NULL;
 }
 
+int removeNode(struct node *ll, unsigned long long hash, char *str) {
+	for (struct node *p = ll, *n = p->next; n != NULL; p = n, n = n->next) {
+		if (hash != n->data->hash)
+			continue;
+
+		if (!strcmp(n->data->str, str)) {
+			p->next = n->next;
+			free(n->data->str);
+			free(n->data);
+			free(n);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 /*
  * Free all nodes created with malloc in provided list.
  */

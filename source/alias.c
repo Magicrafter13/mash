@@ -84,6 +84,23 @@ Alias *aliasAdd(AliasMap *info, char *name, char *str) {
 	return alias;
 }
 
+int aliasRemove(AliasMap *info, char *name) {
+	struct strhash *entry = tableSearch(info->map, info->buckets, name);
+	if (entry == NULL)
+		return 0;
+
+	Alias *alias = entry->data;
+	free(alias->str);
+	for (size_t i = 0; i < alias->argc; ++i)
+		freeArg(alias->args[i]);
+	free(alias->args);
+	free(alias);
+
+	info->map = tableRemove(info->map, &info->buckets, name);
+
+	return 1;
+}
+
 int aliasPrint(AliasMap *info, char *name, FILE *restrict stream) {
 	struct strhash *entry = tableSearch(info->map, info->buckets, name);
 	if (entry == NULL)

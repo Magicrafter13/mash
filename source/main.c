@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
 				// Long argument
 				if (argv[1][1] == '-') {
 					if (!strcmp(&argv[1][2], "version")) {
-						fprintf(stdout, "mash %u.%u\n", _VMAJOR, _VMINOR);
+						fprintf(stdout, "mash %u.%u\nCompiled " __DATE__ " " __TIME__ "\n", _VMAJOR, _VMINOR);
 						return 0;
 					}
 				}
@@ -298,6 +298,17 @@ int main(int argc, char *argv[]) {
 			}
 			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
 				free(e_argv[v]);
+			continue;
+		}
+
+		// Check for unalias
+		if (!strcmp(e_argv[0], "unalias")) {
+			for (size_t v = 1; v < cmd->c_argc - flow_control; ++v) {
+				if (!aliasRemove(aliases, e_argv[v])) {
+					fprintf(stderr, "No such alias `%s'\n", e_argv[v]);
+					cmd_exit = 1;
+				}
+			}
 			continue;
 		}
 

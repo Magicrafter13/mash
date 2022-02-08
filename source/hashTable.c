@@ -82,6 +82,13 @@ struct strhash *tableSearch(hashTable *table, unsigned long long buckets, char *
 	return strNode->data;
 }
 
+hashTable *tableRemove(hashTable *table, unsigned long long *buckets, char *str) {
+	unsigned long long hash = crc64(str);
+	int bucket = hash % *buckets;
+	removeNode(&table[bucket], hash, str);
+	return table;
+}
+
 /*
  * Evaluate performance of hash table.
  * Must provide the size of the table in buckets.

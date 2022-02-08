@@ -26,6 +26,8 @@ int add(struct node*, struct strhash*);
 // Checks for a value in the list.
 struct node *search(struct node*, unsigned long long, char*);
 
+int removeNode(struct node*, unsigned long long, char*);
+
 // Free all nodes in a list from memory.
 void free_nodes(struct node*);
 
