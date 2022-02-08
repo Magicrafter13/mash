@@ -11,7 +11,7 @@ D_OBJS = $(CSRC:$(SOURCE)/%.c=$(DEBUG)/%.o) $(CXXSRC:$(SOURCE)/%.cpp=$(DEBUG)/%.
 
 CFLAGS   =
 CXXFLAGS =
-CPPFLAGS = -c -I$(INCLUDE) -Wall
+CPPFLAGS = -c -I$(INCLUDE) -Wall -Werror=implicit-function-declaration -std=c99
 LDFLAGS  =
 LDLIBS   =
 

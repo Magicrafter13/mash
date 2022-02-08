@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L // fileno, strdup, mkstemp, setenv
+#define _DEFAULT_SOURCE // srandom
 #include <errno.h>
 #include <inttypes.h>
 #include <pwd.h>
@@ -12,6 +14,7 @@
 
 #include "suftree.h"
 #include "command.h"
+#include "alias.h"
 
 #define _VMAJOR 1
 #define _VMINOR 0
@@ -32,14 +35,6 @@ uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 	help,
 	cd
 };
-
-struct _alias {
-	char *name;
-	char *str;
-	int argc;
-	struct _arg *args;
-};
-typedef struct _alias Alias;
 
 extern char **environ;
 
@@ -64,18 +59,6 @@ int main(int argc, char *argv[]) {
 
 	// Initialize
 	srandom(time(NULL));
-	SufTree builtins = suftreeInit(BUILTIN[0], 0), aliases = suftreeInit("mmmm", 0);
-	for (size_t b = 1; b < BUILTIN_COUNT; b++)
-		suftreeAdd(&builtins, BUILTIN[b], b);
-	size_t alias_count = 1;
-	Alias *alias = malloc(sizeof (Alias));
-	// TODO it's really stupid that we need at least one thing in the tree... should probably fix that but I'm lazy :)
-	alias[0].name = strdup("mmmm");
-	alias[0].str = strdup("mmmm");
-	alias[0].argc = 1;
-	alias[0].args = calloc(2, sizeof (struct _arg));
-	alias[0].args[0] = (struct _arg){ .type = ARG_BASIC_STRING, .str = strdup("mmmm") };
-	alias[0].args[1] = (struct _arg){ .type = ARG_NULL };
 
 	FILE *input_source = stdin;
 
@@ -85,25 +68,24 @@ int main(int argc, char *argv[]) {
 	if (interactive) { // Source config
 		char *temp = getenv("XDG_CONFIG_HOME");
 		if (temp == NULL) {
-			size_t len = strlen(PASSWD->pw_dir);
-			config_file = calloc(len + 26, sizeof (char));
+			config_file = calloc(strlen(PASSWD->pw_dir) + 26, sizeof (char));
 			strcpy(config_file, PASSWD->pw_dir);
-			strcpy(&config_file[len], "/.config/mash/config.mash");
+			strcat(config_file, "/.config/mash/config.mash");
 		}
 		else {
-			size_t len = strlen(temp);
-			config_file = calloc(len + 18, sizeof (char));
+			config_file = calloc(strlen(temp) + 18, sizeof (char));
 			strcpy(config_file, temp);
-			strcpy(&config_file[len], "/mash/config.mash");
+			strcat(config_file, "/mash/config.mash");
 		}
 		if (access(config_file, R_OK) == 0) {
 			sourcing = 1;
 			input_source = fopen(config_file, "r");
 			if (input_source == NULL) {
+				int err = errno;
 				fprintf(stderr, "%m\n");
 				fflush(stderr);
-				cmd_exit = errno;
-				goto exit_cleanup;
+				free(config_file);
+				return err;
 			}
 		}
 	}
@@ -115,7 +97,7 @@ int main(int argc, char *argv[]) {
 				if (argv[1][1] == '-') {
 					if (!strcmp(&argv[1][2], "version")) {
 						fprintf(stdout, "mash %u.%u\n", _VMAJOR, _VMINOR);
-						goto exit_cleanup;
+						return 0;
 					}
 				}
 				// Regular argument
@@ -138,14 +120,20 @@ int main(int argc, char *argv[]) {
 				// (Presumed) file name
 				input_source = fopen(argv[1], "r");
 				if (input_source == NULL) {
+					int err = errno;
 					fprintf(stderr, "%m\n");
 					fflush(stderr);
-					cmd_exit = errno;
-					goto exit_cleanup;
+					return err;
 				}
 			}
 		}
 	}
+
+	SufTree builtins = suftreeInit(BUILTIN[0], 0);
+	for (size_t b = 1; b < BUILTIN_COUNT; b++)
+		suftreeAdd(&builtins, BUILTIN[b], b);
+
+	AliasMap *aliases = aliasInit();
 
 	// User prompt (main loop)
 	// TODO make a struct for a command - can have an array of command history to call back on!
@@ -264,24 +252,7 @@ int main(int argc, char *argv[]) {
 		if (cmd->c_argv[0].type == ARG_BASIC_STRING)
 			if (!strcmp(cmd->c_argv[0].str, "while") || !strcmp(cmd->c_argv[0].str, "if"))
 				flow_control = 1;
-		// Check if first arg is an alias
-		size_t index;
-check_alias:
-		if (cmd->c_argv[0].type == ARG_BASIC_STRING && suftreeHas(&aliases, cmd->c_argv[0].str, &index)) {
-			int temp_argc = cmd->c_argc;
-			cmd->c_argc += alias[index].argc - 1;
-			cmd->c_argv = reallocarray(cmd->c_argv, cmd->c_argc + 1, sizeof (struct _arg));
-			cmd->c_argv[cmd->c_argc] = cmd->c_argv[temp_argc]; // Copy ARG_NULL
-			// Delete alias arg and shift remaining args
-			freeArg(cmd->c_argv[0]);
-			for (size_t i = 0; i < temp_argc - 1; ++i)
-				cmd->c_argv[cmd->c_argc - 1 - i] = cmd->c_argv[temp_argc - 1 - i];
-			for (size_t i = 0; i < alias[index].argc; ++i)
-				cmd->c_argv[i] = argdup(alias[index].args[i]);
-			// Check if new argv[0] is the same as the alias name. If not, run through again. (Can't use while loop, since it's perfectly normal to alias ls to ls (but with extra args).)
-			if (cmd->c_argv[0].type == ARG_BASIC_STRING && strcmp(cmd->c_argv[0].str, alias[index].name))
-				goto check_alias;
-		}
+		aliasResolve(aliases, cmd);
 		// Expand command
 		char *e_argv[cmd->c_argc + 1 - flow_control];
 		for (size_t i = flow_control; i < cmd->c_argc; ++i) {
@@ -307,60 +278,23 @@ check_alias:
 			cmd_exit = 0;
 			// List all aliases
 			if (e_argv[1] == NULL)
-				for (size_t i = 0; i < alias_count; ++i)
-					fprintf(stdout, "%s=%s\n", alias[i].name, alias[i].args[0].str);
+				aliasList(aliases, stdout);
 			// List or set one alias
 			else {
 				char *equal_addr = strchr(e_argv[1], '=');
-				size_t index;
-
 				// No equal sign, means to show an alias
-				if (equal_addr == NULL) {
-					if (suftreeHas(&aliases, e_argv[1], &index))
-						fprintf(stdout, "%s=%s\n", alias[index].name, alias[index].str);
-					else
-						cmd_exit = 1;
-					for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
-						free(e_argv[v]);
-					continue;
-				}
-
-				size_t equals = equal_addr - e_argv[1];
-				// Nothing to the left of the equal sign
-				if (equals == 0) {
-					cmd_exit = 1;
-					for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
-						free(e_argv[v]);
-					continue;
-				}
-
-				e_argv[1][equals] = '\0';
-				char *a_str = strdup(&e_argv[1][equals + 1]);
-				// Alias already exists, so we only need to change its args
-				if (suftreeHas(&aliases, e_argv[1], &index)) {
-					free(alias[index].str);
-					for (size_t i = 0; i <= alias[index].argc; ++i)
-						freeArg(alias[index].args[i]);
-					free(alias[index].args);
-				}
-				// New alias
+				if (equal_addr == NULL)
+					cmd_exit = aliasPrint(aliases, e_argv[1], stdout);
 				else {
-					char *a_name = strdup(e_argv[1]);
-					suftreeAdd(&aliases, a_name, alias_count);
-					alias = reallocarray(alias, alias_count + 1, sizeof (Alias));
-					index = alias_count++;
-					alias[index].name = a_name;
+					size_t equals = equal_addr - e_argv[1];
+					// Nothing to the left of the equal sign
+					if (equals == 0)
+						cmd_exit = 1;
+					else {
+						e_argv[1][equals] = '\0';
+						aliasAdd(aliases, e_argv[1], &e_argv[1][equals + 1]);
+					}
 				}
-
-				alias[index].str = a_str;
-
-				// Parse string into args (so we don't have to do that every single time the alias is called)
-				Command temp;
-				temp.c_size = (temp.c_len = strlen(a_str)) + 1;
-				temp.c_buf = a_str;
-				commandParse(&temp, NULL);
-				alias[index].argc = temp.c_argc;
-				alias[index].args = temp.c_argv;
 			}
 			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
 				free(e_argv[v]);
@@ -416,12 +350,6 @@ check_alias:
 		else {
 			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
-			/*if (interactive && !sourcing) {
-				if (cmd->c_next == NULL) {
-					fprintf(stderr, "Command exited with %" PRIu8 ".\n", cmd_exit);
-					fflush(stderr);
-				}
-			}*/
 			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
 				free(e_argv[i]);
 		}
@@ -433,34 +361,18 @@ check_alias:
 
 exit_cleanup:
 
+	aliasFree(aliases);
+
 	if (sourcing)
 		fclose(input_source);
 
 	if (interactive)
 		free(config_file);
 
-	for (size_t i = 0; i < alias_count; ++i) {
-		for (size_t a = 0; a <= alias[i].argc; ++a)
-			freeArg(alias[i].args[a]);
-		free(alias[i].args);
-		free(alias[i].str);
-		free(alias[i].name);
-	}
-	free(alias);
-
-	suftreeFree(aliases.sf_gt);
-	suftreeFree(aliases.sf_eq);
-	suftreeFree(aliases.sf_lt);
-
 	suftreeFree(builtins.sf_gt);
 	suftreeFree(builtins.sf_eq);
 	suftreeFree(builtins.sf_lt);
 
-	/*fprintf(stderr, "\n");
-	fflush(stderr);*/
-
-	/*if (!interactive)
-		fclose(stdout);*/
 	return cmd_exit;
 }
 
@@ -496,7 +408,7 @@ char *expandArgument(struct _arg arg) {
 			else
 				path_size = strlen(temp_dir) + 13;
 
-			char template[path_size]; // TODO: instead of hardcoding /tmp, first try to read $TMPDIR
+			char template[path_size];
 			template[0] = '\0';
 			if (temp_dir == NULL)
 				strcat(template, "/tmp");
@@ -517,15 +429,12 @@ char *expandArgument(struct _arg arg) {
 				dup2(sub_stdout, STDOUT_FILENO);
 				close(STDIN_FILENO);
 				char *argv[4] = {
-					"mash", // "/proc/self/exe"
+					"mash",
 					"-c",
 					arg.str,
 					NULL
 				};
 				int err = main(3, argv);
-				/*execvp(argv[0], argv);
-				fprintf(stderr, "%m\n");
-				fflush(stderr);*/
 
 				close(sub_stdout);
 
@@ -572,7 +481,6 @@ char *expandArgument(struct _arg arg) {
 			unlink(template); // TODO: consider stdio's tmpfile?
 			if (out_end > 0 && (sub_output[out_end - 1] == ' ' || sub_output[out_end - 1] == '\n'))
 				--out_end;
-			//while (out_end < size)
 			sub_output[out_end] = '\0';
 			return sub_output;
 		}
@@ -601,12 +509,6 @@ char *expandArgument(struct _arg arg) {
 				strcat(expanded_string, argv[i]);
 				free(argv[i]);
 			}
-			/*char fmt[sub_count * 2];
-			for (size_t i = 0; i < sub_count; ++i) {
-				fmt[i * 2] = '%';
-				fmt[i * 2 + 1] = 's';
-			}
-			vasprintf(&expanded_string, fmt, argv);*/
 			return expanded_string;
 		}
 		case ARG_NULL:

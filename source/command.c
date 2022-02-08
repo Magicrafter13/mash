@@ -1,8 +1,6 @@
-#include <stdlib.h>
+#include "compatibility.h"
 #include <string.h>
 #include "command.h"
-
-char * const delim_char = " ";
 
 size_t lengthRegular(char*);
 size_t lengthSingleQuote(char*);
@@ -13,14 +11,16 @@ int commandTokenize(Command*, char*);
 
 Command *commandInit() {
 	struct _command *new_command = malloc(sizeof (Command));
-	new_command->c_size = 0;
-	new_command->c_buf = NULL;
-	new_command->c_type = CMD_EMPTY;
-	new_command->c_argc = 0;
-	new_command->c_argv = NULL;
-	new_command->c_next = NULL;
-	new_command->c_if_true = NULL;
-	new_command->c_if_false = NULL;
+	*new_command = (Command){
+		.c_size = 0,
+		.c_buf = NULL,
+		.c_type = CMD_EMPTY,
+		.c_argc = 0,
+		.c_argv = NULL,
+		.c_next = NULL,
+		.c_if_true = NULL,
+		.c_if_false = NULL,
+	};
 	return new_command;
 }
 
@@ -45,7 +45,6 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 		cmd->c_buf[0] = '\0';
 		cmd->c_type = CMD_EMPTY;
-		//cmd->c_argc = 0;
 		return 0;
 	}
 
@@ -250,12 +249,8 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 				}
 			}
 		}
-
-		//cmd = cmd->c_next;
 	}
 	while (cmd->c_buf[0] != '\0' && (cmd = cmd->c_next));
-
-	//free(cmd->c_buf); // Free the buffer we read into
 
 	return 0;
 }
@@ -380,9 +375,10 @@ size_t lengthDollarExp(char *buf) {
 int commandTokenize(Command *cmd, char *buf) {
 	cmd->c_type = CMD_REGULAR;
 
+	// TODO scan whole string to get accurate arg count instead of winging it
 	cmd->c_argc = 1; // Get maximum number of possible tokens
 	for (size_t i = 0; i < cmd->c_len; i++)
-		if (buf[i] == *delim_char)
+		if (buf[i] == ' ')
 			cmd->c_argc++;
 
 	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (struct _arg));
@@ -557,6 +553,7 @@ struct _arg argdup(struct _arg a) {
 		case ARG_NULL:
 			return (struct _arg){ .type = ARG_NULL };
 	}
+	return (struct _arg){};
 }
 
 void commandFree(Command *cmd) {

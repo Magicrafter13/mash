@@ -85,6 +85,6 @@ void suftreeFree(SufTree *tree) {
 		suftreeFree(tree->sf_gt);
 		suftreeFree(tree->sf_eq);
 		suftreeFree(tree->sf_lt);
+		free(tree);
 	}
-	free(tree);
 }
