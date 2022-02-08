@@ -271,6 +271,7 @@ size_t lengthRegular(char *buf) {
 			case ' ':
 			case '\t':
 			case '\n':
+			case ';':
 				return l;
 			case '\\':
 				c = buf[++l];
@@ -525,16 +526,14 @@ stupid_single_quote_goto:;
 			}
 		}
 	}
-	--current;
-
-	if (semicolon)
-		++current;
+	if (!semicolon)
+		--current;
 	memmove(buf, &buf[current], cmd->c_len - current + 1);
 	if (semicolon) {
 		cmd->c_next = commandInit();
 		cmd->c_next->c_buf = cmd->c_buf;
 		cmd->c_next->c_size = cmd->c_size;
-		cmd->c_next->c_len -= current;
+		cmd->c_next->c_len = cmd->c_len - current;
 		cmd->c_len = current;
 	}
 
