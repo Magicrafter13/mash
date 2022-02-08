@@ -15,7 +15,7 @@ Command *commandInit() {
 	struct _command *new_command = malloc(sizeof (Command));
 	new_command->c_size = 0;
 	new_command->c_buf = NULL;
-	new_command->c_type = CMD_REGULAR;
+	new_command->c_type = CMD_EMPTY;
 	new_command->c_argc = 0;
 	new_command->c_argv = NULL;
 	new_command->c_next = NULL;
@@ -238,7 +238,6 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 						}
 
 						// Point final statement in true block, and false block, to fi (which will become a CMD_EMPTY)
-						if_cmd->c_next = cmd;
 						if (last_true != NULL)
 							last_true->c_next = cmd;
 						previous->c_next = cmd;
