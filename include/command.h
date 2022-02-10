@@ -12,11 +12,12 @@ enum _arg_type {
 	ARG_COMPLEX_STRING
 };
 
+typedef struct _arg CmdArg;
 struct _arg {
 	enum _arg_type type;
 	union {
-		char * str;
-		struct _arg * sub;
+		char *str;
+		CmdArg *sub;
 	};
 };
 
@@ -28,18 +29,17 @@ enum _cmd_type {
 	CMD_IF
 };
 
+typedef struct _command Command;
 struct _command {
 	size_t c_len, c_size;
-	char * c_buf;
+	char *c_buf;
 	enum _cmd_type c_type;
 	int c_argc;
-	struct _arg * c_argv;
-	struct _command * c_next;
-	struct _command * c_if_true;
-	struct _command * c_if_false;
+	CmdArg *c_argv;
+	Command *c_next;
+	Command *c_if_true;
+	Command *c_if_false;
 };
-
-typedef struct _command Command;
 
 Command *commandInit();
 
@@ -47,10 +47,10 @@ int commandRead(Command*, FILE*restrict, FILE*restrict);
 
 int commandParse(Command*, FILE*restrict, FILE*restrict);
 
-struct _arg argdup(struct _arg);
+CmdArg argdup(CmdArg);
 
 void commandFree(Command*);
 
-void freeArg(struct _arg);
+void freeArg(CmdArg);
 
 #endif

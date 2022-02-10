@@ -14,7 +14,7 @@
 #include <time.h>
 #include <unistd.h>
 
-char *expandArgument(struct _arg);
+char *expandArgument(CmdArg);
 int mktmpfile(_Bool, char**);
 
 #define BUILTIN_COUNT 3
@@ -386,7 +386,7 @@ exit_cleanup:
 	return cmd_exit;
 }
 
-char *expandArgument(struct _arg arg) {
+char *expandArgument(CmdArg arg) {
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
 			return strdup(arg.str);

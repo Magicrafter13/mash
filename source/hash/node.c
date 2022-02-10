@@ -17,7 +17,7 @@ Node *init() {
  * Add a node containing a hashed string as its data to the list.
  * Returning 1 if successful, and 0 if not.
  */
-int add(Node *ll, struct _entry entry) {
+int add(Node *ll, TableEntry entry) {
 	// Make sure sentinel exists
 	if (ll == NULL)
 		return 0;

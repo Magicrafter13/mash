@@ -5,12 +5,12 @@
  * Hash Table (Bucket) Entry
  * Contains a key,value pair, as well as its full hash.
  */
+typedef struct _entry TableEntry;
 struct _entry {
 	unsigned long long hash;
 	char *key;
 	void *data;
 };
-typedef struct _entry TableEntry;
 
 /*
  * Linked list node.
@@ -18,19 +18,19 @@ typedef struct _entry TableEntry;
  * All other nodes store a hash table entry.
  * Both types have a pointer to the next node in the chain.
  */
+typedef struct _node Node;
 struct _node {
 	union {
 		// Hash data
-		struct _entry entry;
+		TableEntry entry;
 		// Temporary storage for sentinel node
 		struct {
 			long size;
-			struct _node *temp;
+			Node *temp;
 		};
 	};
-	struct _node *next;
+	Node *next;
 };
-typedef struct _node Node;
 
 // Initialize a new sentinel node.
 Node *init();
@@ -54,7 +54,7 @@ void free_nodes(Node*);
 
 #define GROWTH_FACTOR 8 // Bucket count increase factor
 
-typedef struct _node hashTable;
+typedef Node hashTable;
 
 // Create a new hash table.
 hashTable *createTable(unsigned long long buckets);

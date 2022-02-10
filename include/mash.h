@@ -25,18 +25,18 @@ uint8_t cd(size_t, void**);
  * Aliases
  */
 
+typedef struct _alias_map AliasMap;
 struct _alias_map {
 	unsigned long long buckets;
 	hashTable *map;
 };
-typedef struct _alias_map AliasMap;
 
+typedef struct _alias Alias;
 struct _alias {
 	char *str;
 	int argc;
-	struct _arg *args;
+	CmdArg *args;
 };
-typedef struct _alias Alias;
 
 AliasMap *aliasInit();
 void aliasFree(AliasMap*);

@@ -11,7 +11,7 @@ size_t lengthDollarExp(char*);
 int commandTokenize(Command*, char*);
 
 Command *commandInit() {
-	struct _command *new_command = malloc(sizeof (Command));
+	Command *new_command = malloc(sizeof (Command));
 	*new_command = (Command){
 		.c_size = 0,
 		.c_buf = NULL,
@@ -387,7 +387,7 @@ int commandTokenize(Command *cmd, char *buf) {
 		if (buf[i] == ' ')
 			cmd->c_argc++;
 
-	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (struct _arg));
+	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (CmdArg));
 	for (size_t i = 0; i < cmd->c_argc + 1; ++i)
 		cmd->c_argv[i].type = ARG_NULL;
 
@@ -404,8 +404,8 @@ int commandTokenize(Command *cmd, char *buf) {
 				/*if (quote_len == 0) {
 					// do what?
 				}*/
-				struct _arg new_arg = { .type = ARG_BASIC_STRING, .str = strndup(&buf[current + 1], quote_len - 2) };
-				struct _arg *cur_arg = &cmd->c_argv[cmd->c_argc];
+				CmdArg new_arg = { .type = ARG_BASIC_STRING, .str = strndup(&buf[current + 1], quote_len - 2) };
+				CmdArg *cur_arg = &cmd->c_argv[cmd->c_argc];
 				switch (cur_arg->type) {
 					case ARG_NULL:
 						*cur_arg = new_arg;
@@ -414,16 +414,16 @@ int commandTokenize(Command *cmd, char *buf) {
 						size_t arr_len = 0;
 						while (cur_arg->sub[arr_len].type != ARG_NULL)
 							++arr_len;
-						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (struct _arg));
+						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
 						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
 						cur_arg->sub[arr_len] = new_arg;
 						break;
 					}
 					default: {
-						struct _arg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (struct _arg)) };
+						CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
 						new_complex.sub[0] = *cur_arg;
 						new_complex.sub[1] = new_arg;
-						new_complex.sub[2] = (struct _arg){ .type = ARG_NULL };
+						new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
 						*cur_arg = new_complex;
 					}
 				}
@@ -436,18 +436,18 @@ int commandTokenize(Command *cmd, char *buf) {
 				break;
 			case '$': {
 				size_t dollar_len = lengthDollarExp(&buf[current]);
-				struct _arg new_arg;
+				CmdArg new_arg;
 				if (dollar_len == 1) {
-					new_arg = (struct _arg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
+					new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
 				}
 				else {
 					if (buf[current + 1] == '(')
-						new_arg = (struct _arg){ .type = inDoubleQuote ? ARG_QUOTED_SUBSHELL : ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
+						new_arg = (CmdArg){ .type = inDoubleQuote ? ARG_QUOTED_SUBSHELL : ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
 					else
-						new_arg = (struct _arg){ .type = ARG_VARIABLE, .str = strndup(&buf[current + 1], dollar_len - 1) };
+						new_arg = (CmdArg){ .type = ARG_VARIABLE, .str = strndup(&buf[current + 1], dollar_len - 1) };
 				}
 				// TODO: HANDLE BAD DOLLAR EXP
-				struct _arg *cur_arg = &cmd->c_argv[cmd->c_argc];
+				CmdArg *cur_arg = &cmd->c_argv[cmd->c_argc];
 				switch (cur_arg->type) {
 					case ARG_NULL:
 						*cur_arg = new_arg;
@@ -456,16 +456,16 @@ int commandTokenize(Command *cmd, char *buf) {
 						size_t arr_len = 0;
 						while (cur_arg->sub[arr_len].type != ARG_NULL)
 							++arr_len;
-						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (struct _arg));
+						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
 						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
 						cur_arg->sub[arr_len] = new_arg;
 						break;
 					}
 					default: {
-						struct _arg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (struct _arg)) };
+						CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
 						new_complex.sub[0] = *cur_arg;
 						new_complex.sub[1] = new_arg;
-						new_complex.sub[2] = (struct _arg){ .type = ARG_NULL };
+						new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
 						*cur_arg = new_complex;
 					}
 				}
@@ -497,9 +497,9 @@ int commandTokenize(Command *cmd, char *buf) {
 			default: {
 stupid_single_quote_goto:;
 				size_t reg_len = inDoubleQuote ? lengthRegInDouble(&buf[current]) : lengthRegular(&buf[current]);
-				struct _arg new_arg = (struct _arg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[current], reg_len) };
+				CmdArg new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[current], reg_len) };
 				// TODO: HANDLE 0?
-				struct _arg *cur_arg = &cmd->c_argv[cmd->c_argc];
+				CmdArg *cur_arg = &cmd->c_argv[cmd->c_argc];
 				switch (cur_arg->type) {
 					case ARG_NULL:
 						*cur_arg = new_arg;
@@ -508,16 +508,16 @@ stupid_single_quote_goto:;
 						size_t arr_len = 0;
 						while (cur_arg->sub[arr_len].type != ARG_NULL)
 							++arr_len;
-						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (struct _arg));
+						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
 						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
 						cur_arg->sub[arr_len] = new_arg;
 						break;
 					}
 					default: {
-						struct _arg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (struct _arg)) };
+						CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
 						new_complex.sub[0] = *cur_arg;
 						new_complex.sub[1] = new_arg;
-						new_complex.sub[2] = (struct _arg){ .type = ARG_NULL };
+						new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
 						*cur_arg = new_complex;
 					}
 				}
@@ -541,25 +541,25 @@ stupid_single_quote_goto:;
 	return 0;
 }
 
-struct _arg argdup(struct _arg a) {
+CmdArg argdup(CmdArg a) {
 	switch (a.type) {
 		case ARG_BASIC_STRING:
 		case ARG_VARIABLE:
 		case ARG_SUBSHELL:
 		case ARG_QUOTED_SUBSHELL:
-			return (struct _arg){ .type = a.type, .str = strdup(a.str) };
+			return (CmdArg){ .type = a.type, .str = strdup(a.str) };
 		case ARG_COMPLEX_STRING: {
 			size_t sub_len = 0;
 			while (a.sub[sub_len++].type != ARG_NULL);
-			struct _arg new_arg = { .type = ARG_COMPLEX_STRING, .sub = calloc(sub_len, sizeof (struct _arg)) };
+			CmdArg new_arg = { .type = ARG_COMPLEX_STRING, .sub = calloc(sub_len, sizeof (CmdArg)) };
 			for (size_t i = 0; i <= sub_len; ++i)
 				new_arg.sub[i] = argdup(a.sub[i]);
 			return new_arg;
 		}
 		case ARG_NULL:
-			return (struct _arg){ .type = ARG_NULL };
+			return (CmdArg){ .type = ARG_NULL };
 	}
-	return (struct _arg){};
+	return (CmdArg){};
 }
 
 void commandFree(Command *cmd) {
@@ -586,7 +586,7 @@ void commandFree(Command *cmd) {
 	free(cmd);
 }
 
-void freeArg(struct _arg a) {
+void freeArg(CmdArg a) {
 	switch (a.type) {
 		case ARG_BASIC_STRING:
 		case ARG_VARIABLE:

@@ -40,7 +40,7 @@ void aliasResolve(AliasMap *info, Command *cmd) {
 	Alias *alias = entry->data;
 	int temp_argc = cmd->c_argc;
 	cmd->c_argc += alias->argc - 1;
-	cmd->c_argv = reallocarray(cmd->c_argv, cmd->c_argc + 1, sizeof (struct _arg));
+	cmd->c_argv = reallocarray(cmd->c_argv, cmd->c_argc + 1, sizeof (CmdArg));
 	cmd->c_argv[cmd->c_argc] = cmd->c_argv[temp_argc]; // Copy ARG_NULL
 	// Delete alias arg and shift remaining args
 	freeArg(cmd->c_argv[0]);

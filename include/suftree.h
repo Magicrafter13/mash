@@ -3,18 +3,17 @@
 
 #include <stddef.h>
 
+typedef struct _suffix_tree SufTree;
 struct _suffix_tree {
 	char *sf_str;
 	size_t sf_len;
 	size_t sf_id;
 	int sf_valid;
 	// TODO should this be an array for ease of coding, or leave it like this for an easier time reading??
-	struct _suffix_tree *sf_lt;
-	struct _suffix_tree *sf_eq;
-	struct _suffix_tree *sf_gt;
+	SufTree *sf_lt;
+	SufTree *sf_eq;
+	SufTree *sf_gt;
 };
-
-typedef struct _suffix_tree SufTree;
 
 #define suftreeInit(str, id) (SufTree){ str, strlen(str), id, 1, NULL, NULL, NULL }
 
