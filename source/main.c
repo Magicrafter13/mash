@@ -340,6 +340,31 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		// Check for read
+		if (!strcmp(e_argv[0], "read")) {
+			char *value = NULL;
+			size_t size = 0;
+			size_t bytes_read = getline(&value, &size, stdin);
+			if (bytes_read == -1) {
+				clearerr(stdin);
+				cmd_exit = 1;
+			}
+			else {
+				if (value[bytes_read - 1] == '\n')
+					value[bytes_read - 1] = '\0';
+				if (e_argv[1] != NULL) {
+					if (setenv(e_argv[1], value, 1) == -1) {
+						cmd_exit = errno;
+						fprintf(stderr, "%m\n");
+					}
+				}
+			}
+			free(value);
+			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+				free(e_argv[v]);
+			continue;
+		}
+
 		// Execute regular command
 		cmd_pid = fork();
 		// Forked process will execute the command
