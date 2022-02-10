@@ -54,33 +54,14 @@ int main(int argc, char *argv[]) {
 	// Initialize
 	srandom(time(NULL));
 
-	FILE *input_source = stdin;
+	FILE *input_source = NULL;
 
 	const uid_t UID = getuid();
 	struct passwd *PASSWD = getpwuid(UID);
-	char *config_file = NULL;
 	if (interactive) { // Source config
-		char *temp = getenv("XDG_CONFIG_HOME");
-		if (temp == NULL) {
-			config_file = calloc(strlen(PASSWD->pw_dir) + 26, sizeof (char));
-			strcpy(config_file, PASSWD->pw_dir);
-			strcat(config_file, "/.config/mash/config.mash");
-		}
-		else {
-			config_file = calloc(strlen(temp) + 18, sizeof (char));
-			strcpy(config_file, temp);
-			strcat(config_file, "/mash/config.mash");
-		}
-		if (access(config_file, R_OK) == 0) {
+		input_source = open_config(PASSWD);
+		if (input_source != NULL)
 			sourcing = 1;
-			input_source = fopen(config_file, "r");
-			if (input_source == NULL) {
-				int err = errno;
-				fprintf(stderr, "%m\n");
-				free(config_file);
-				return err;
-			}
-		}
 	}
 	else {
 		if (argc > 1) {
@@ -120,9 +101,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	FILE *history_pool = interactive ? tmpfile() : NULL;
-	if (interactive && history_pool == NULL)
-		fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+	FILE *history_pool = NULL;
 
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
@@ -173,12 +152,20 @@ int main(int argc, char *argv[]) {
 				}
 			}
 
+			if (input_source == NULL) {
+				if (interactive) {
+					history_pool = tmpfile();
+					if (history_pool == NULL)
+						fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+					input_source = stdin;
+				}
+			}
 			// Present prompt and read command
 			if (interactive && !sourcing)
 				fprintf(stderr, "$ ");
 			fflush(stderr);
 
-			int parse_result = commandParse(cmd, input_source, sourcing ? NULL : history_pool);
+			int parse_result = commandParse(cmd, input_source, history_pool);
 			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (subshell)
@@ -193,7 +180,7 @@ int main(int argc, char *argv[]) {
 				if (sourcing) {
 					sourcing = 0;
 					fclose(input_source);
-					input_source = stdin;
+					input_source = NULL;
 					continue;
 				}
 				if (!interactive)
@@ -377,57 +364,18 @@ exit_cleanup:
 	if (sourcing)
 		fclose(input_source);
 
-	if (interactive)
-		free(config_file);
-
 	suftreeFree(builtins.sf_gt);
 	suftreeFree(builtins.sf_eq);
 	suftreeFree(builtins.sf_lt);
 
 	// Update history file
 	if (interactive && history_pool != NULL) {
-		FILE *history = NULL;
-
-		char *env_histfile = getenv("HISTFILE");
-		if (env_histfile != NULL) {
-			history = fopen(env_histfile, "a");
-			if (history == NULL)
-				fprintf(stderr, "Could not open file at `%s', history not saved.\n", env_histfile);
-		}
-		else {
-			char *env_xdg = getenv("XDG_CONFIG_HOME"), *env_home = NULL;
-			if (env_xdg == NULL)
-				env_home = getenv("HOME");
-
-			char history_path[
-				(env_xdg == NULL
-					? (strlen(env_home == NULL
-						? PASSWD->pw_dir
-						: env_home) + 8) // "/.config" = 8
-					: strlen(env_xdg)) + 14 // "/mash/" = 6 + "history" = 7 + \0 = 1
-			];
-			history_path[0] = '\0';
-			if (env_xdg == NULL) {
-				strcat(history_path, env_home == NULL ? PASSWD->pw_dir : env_home);
-				strcat(history_path, "/.config");
-			}
-			else
-				strcat(history_path, env_xdg);
-			strcat(history_path, "/mash/");
-
-			if (access(history_path, R_OK) == 0) {
-				strcat(history_path, "history");
-				history = fopen(history_path, "a");
-				if (history == NULL)
-					fprintf(stderr, "Could not open `%s' for writing, history not saved.\n", history_path);
-			}
-		}
-
+		FILE *history = open_history(PASSWD);
 		if (history != NULL) {
 			rewind(history_pool);
-			char buffer[1024];
+			char buffer[TMP_RW_BUFSIZE];
 			size_t bytes_read;
-			while (bytes_read = fread(buffer, sizeof (char), 1024, history_pool), bytes_read != 0)
+			while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, history_pool), bytes_read != 0)
 				fwrite(buffer, sizeof (char), bytes_read, history);
 			fclose(history);
 		}
@@ -496,11 +444,11 @@ char *expandArgument(struct _arg arg) {
 			lseek(sub_stdout, 0, SEEK_SET);
 			char *sub_output = calloc(size + 1, sizeof (char));
 			size_t out_end = 0;
-			char buffer[512];
-			memset(buffer, 0, 512);
+			char buffer[TMP_RW_BUFSIZE];
+			memset(buffer, 0, TMP_RW_BUFSIZE);
 			int read_return;
-			// TODO: if a word is caught on the 512 byte boundary it will be split into 2 arguments - need to fix this (and already know how...)
-			while ((read_return = read(sub_stdout, buffer, 512)) > 0 ) {
+			// TODO: if a word is caught on the TMP_RW_BUFSIZE byte boundary it will be split into 2 arguments - need to fix this (and already know how...)
+			while ((read_return = read(sub_stdout, buffer, TMP_RW_BUFSIZE)) > 0 ) {
 				// Regular subshells replace newlines and tabs with spaces, and truncate all spaces longer than 1.
 				if (arg.type == ARG_SUBSHELL) {
 					for (size_t i = 0; i < read_return; ++i) {

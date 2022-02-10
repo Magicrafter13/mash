@@ -1,7 +1,6 @@
 #ifndef COMMAND_H
 #define COMMAND_H
 
-#include "suftree.h"
 #include <stdio.h>
 
 enum _arg_type {
