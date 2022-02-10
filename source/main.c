@@ -12,12 +12,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "mash.h"
 #include "suftree.h"
-#include "command.h"
-#include "alias.h"
-
-#define _VMAJOR 1
-#define _VMINOR 0
 
 char *expandArgument(struct _arg);
 int mktmpfile(_Bool, char**);

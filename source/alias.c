@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L // strdup
+#include "mash.h"
+#include "compatibility.h" // For reallocarray
 #include <string.h>
-#include "alias.h"
 
 AliasMap *aliasInit() {
 	AliasMap *info = malloc(sizeof (AliasMap));
@@ -11,7 +12,7 @@ AliasMap *aliasInit() {
 
 void aliasFree(AliasMap *info) {
 	for (unsigned long long bucket = 0; bucket < info->buckets; ++bucket) {
-		for (struct node *node = info->map[bucket].next; node != NULL; node = node->next) {
+		for (Node *node = info->map[bucket].next; node != NULL; node = node->next) {
 			Alias *alias = node->entry.data;
 			free(alias->str);
 			for (size_t i = 0; i < alias->argc; ++i)
@@ -113,7 +114,7 @@ void aliasList(AliasMap *info, FILE *restrict stream) {
 	for (unsigned long long bucket = 0; bucket < info->buckets; ++bucket) {
 		long entries = info->map[bucket].size, entry = 0;
 		if (entries > 0)
-			for (struct node *node = info->map[bucket].next; entry < entries; ++entry, node = node->next)
+			for (Node *node = info->map[bucket].next; entry < entries; ++entry, node = node->next)
 				fprintf(stream, "%s=%s\n", node->entry.key, ((Alias*)node->entry.data)->str);
 	}
 }
