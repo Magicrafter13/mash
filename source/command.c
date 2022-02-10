@@ -31,7 +31,7 @@ int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 		return -1;
 
 	if (ostream != NULL) {
-		fwrite(cmd->c_buf, sizeof (char), cmd->c_len + 1, ostream);
+		fwrite(cmd->c_buf, sizeof (char), cmd->c_len, ostream);
 		fflush(ostream);
 	}
 

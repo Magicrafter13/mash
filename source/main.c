@@ -102,6 +102,11 @@ int main(int argc, char *argv[]) {
 
 	// Further initialization after successful setup and argument parsing
 	Command *cmd = NULL, *last_cmd = commandInit(); // TODO make a struct for a command - can have an array of command history to call back on!
+	if (interactive) {
+		history_pool = tmpfile();
+		if (history_pool == NULL)
+			fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+	}
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
@@ -147,20 +152,15 @@ int main(int argc, char *argv[]) {
 				}
 			}
 
-			if (input_source == NULL) {
-				if (interactive) {
-					history_pool = tmpfile();
-					if (history_pool == NULL)
-						fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+			if (input_source == NULL)
+				if (interactive)
 					input_source = stdin;
-				}
-			}
 			// Present prompt and read command
 			if (interactive && !sourcing)
 				fprintf(stderr, "$ ");
 			fflush(stderr);
 
-			int parse_result = commandParse(cmd, input_source, history_pool);
+			int parse_result = commandParse(cmd, input_source, sourcing ? NULL : history_pool);
 			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (subshell)
@@ -326,6 +326,20 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		// Check for dot TODO if . is inside file being sourced, bad things will happen? Need to make input_source a linked list...
+		if (!strcmp(e_argv[0], ".")) {
+			input_source = fopen(e_argv[1], "r");
+			if (input_source != NULL)
+				sourcing = 1;
+			else {
+				fprintf(stderr, "%m\n");
+				cmd_exit = 1;
+			}
+			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+				free(e_argv[v]);
+			continue;
+		}
+
 		// Execute regular command
 		cmd_pid = fork();
 		// Forked process will execute the command
@@ -357,8 +371,6 @@ int main(int argc, char *argv[]) {
 	if (!subshell && last_cmd->c_buf != NULL)
 		free(last_cmd->c_buf);
 	commandFree(last_cmd);
-
-exit_cleanup:
 
 	aliasFree(aliases);
 
