@@ -314,9 +314,9 @@ size_t lengthDoubleQuote(char *buf) {
 		}
 		if (temp == 0)
 			return 0;
-		l += temp;
+		l += temp - 1;
 	}
-	return l;
+	return l + 1;
 }
 
 size_t lengthRegInDouble(char *buf) {
