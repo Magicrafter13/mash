@@ -20,6 +20,7 @@
 #define _VMINOR 0
 
 char *expandArgument(struct _arg);
+int mktmpfile(_Bool, char**);
 uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
 #define BUILTIN_COUNT 3
@@ -129,6 +130,10 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	FILE *history_pool = interactive ? tmpfile() : NULL;
+	if (interactive && history_pool == NULL)
+		fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
@@ -144,7 +149,7 @@ int main(int argc, char *argv[]) {
 		input_source = NULL;
 	}
 
-	pid_t cmd_pid;
+	pid_t cmd_pid = 1; // Don't default to 0 - will cause memory leak
 
 	size_t cmd_builtin;
 
@@ -183,7 +188,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "$ ");
 			fflush(stderr);
 
-			int parse_result = commandParse(cmd, input_source);
+			int parse_result = commandParse(cmd, input_source, sourcing ? NULL : history_pool);
 			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (subshell)
@@ -262,6 +267,10 @@ int main(int argc, char *argv[]) {
 					free(e_argv[e]);
 				free(last_cmd->c_buf);
 				commandFree(last_cmd);
+				if (history_pool != NULL) {
+					fclose(history_pool);
+					history_pool = NULL;
+				}
 				goto exit_cleanup; // Screw it, I'm using a goto and you can't stop me.
 			}
 			e_argv[i - flow_control] = full_arg;
@@ -348,13 +357,17 @@ int main(int argc, char *argv[]) {
 		if (cmd_pid == 0) {
 			// TODO consider manual search of the path
 			execvp(e_argv[0], e_argv);
+			int err = errno;
 			fprintf(stderr, "%m\n");
 			fflush(stderr);
 
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
 			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
 				free(e_argv[i]);
-			cmd_exit = errno;
+			fclose(history_pool);
+			history_pool = NULL;
+
+			cmd_exit = err;
 			break;
 		}
 		// While the main process waits for the child to exit
@@ -384,6 +397,57 @@ exit_cleanup:
 	suftreeFree(builtins.sf_eq);
 	suftreeFree(builtins.sf_lt);
 
+	// Update history file
+	if (interactive && history_pool != NULL) {
+		FILE *history = NULL;
+
+		char *env_histfile = getenv("HISTFILE");
+		if (env_histfile != NULL) {
+			history = fopen(env_histfile, "a");
+			if (history == NULL)
+				fprintf(stderr, "Could not open file at `%s', history not saved.\n", env_histfile);
+		}
+		else {
+			char *env_xdg = getenv("XDG_CONFIG_HOME"), *env_home = NULL;
+			if (env_xdg == NULL)
+				env_home = getenv("HOME");
+
+			char history_path[
+				(env_xdg == NULL
+					? (strlen(env_home == NULL
+						? PASSWD->pw_dir
+						: env_home) + 8) // "/.config" = 8
+					: strlen(env_xdg)) + 14 // "/mash/" = 6 + "history" = 7 + \0 = 1
+			];
+			history_path[0] = '\0';
+			if (env_xdg == NULL) {
+				strcat(history_path, env_home == NULL ? PASSWD->pw_dir : env_home);
+				strcat(history_path, "/.config");
+			}
+			else
+				strcat(history_path, env_xdg);
+			strcat(history_path, "/mash/");
+
+			if (access(history_path, R_OK) == 0) {
+				strcat(history_path, "history");
+				history = fopen(history_path, "a");
+				if (history == NULL)
+					fprintf(stderr, "Could not open `%s' for writing, history not saved.\n", history_path);
+			}
+		}
+
+		if (history != NULL) {
+			rewind(history_pool);
+			char buffer[1024];
+			size_t bytes_read;
+			while (bytes_read = fread(buffer, sizeof (char), 1024, history_pool), bytes_read != 0)
+				fwrite(buffer, sizeof (char), bytes_read, history);
+			fclose(history);
+		}
+		fclose(history_pool);
+	}
+	/*if (cmd_pid == 0)
+		_Exit(cmd_exit);*/
 	return cmd_exit;
 }
 
@@ -412,33 +476,16 @@ char *expandArgument(struct _arg arg) {
 			return strdup(value == NULL ? "" : value);
 		case ARG_SUBSHELL:
 		case ARG_QUOTED_SUBSHELL: {
-			size_t path_size = 0;
-			char *temp_dir = getenv("TMPDIR");
-			if (temp_dir == NULL)
-				path_size = 17;
-			else
-				path_size = strlen(temp_dir) + 13;
-
-			char template[path_size];
-			template[0] = '\0';
-			if (temp_dir == NULL)
-				strcat(template, "/tmp");
-			else
-				strcat(template, temp_dir);
-			strcat(template, "/mash.XXXXXX");
-
-			int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
-			if (sub_stdout == -1) {
-				fprintf(stderr, "%m\n");
-				fflush(stderr);
+			char *filepath;
+			int sub_stdout = mktmpfile(0, &filepath); // Create temporary file, which we will redirect the output to.
+			if (sub_stdout == -1)
 				return NULL;
-			}
 
 			pid_t subshell_pid = fork();
 			// Run subshell
 			if (subshell_pid == 0) {
 				dup2(sub_stdout, STDOUT_FILENO);
-				close(STDIN_FILENO);
+				//close(STDIN_FILENO); // Huh... other shells don't do this
 				char *argv[4] = {
 					"mash",
 					"-c",
@@ -448,6 +495,7 @@ char *expandArgument(struct _arg arg) {
 				int err = main(3, argv);
 
 				close(sub_stdout);
+				free(filepath);
 
 				errno = err;
 				return NULL;
@@ -489,7 +537,8 @@ char *expandArgument(struct _arg arg) {
 				}
 			}
 			close(sub_stdout);
-			unlink(template); // TODO: consider stdio's tmpfile?
+			unlink(filepath); // TODO: consider stdio's tmpfile?
+			free(filepath);
 			if (out_end > 0 && (sub_output[out_end - 1] == ' ' || sub_output[out_end - 1] == '\n'))
 				--out_end;
 			sub_output[out_end] = '\0';
@@ -526,6 +575,30 @@ char *expandArgument(struct _arg arg) {
 		default:
 			return NULL;
 	}
+}
+
+int mktmpfile(_Bool hidden, char **path) {
+	size_t path_size = 13 + (hidden ? 1 : 0);
+	char *temp_dir = getenv("TMPDIR");
+	if (temp_dir == NULL)
+		path_size += 4;
+	else
+		path_size += strlen(temp_dir);
+
+	char *template = calloc(path_size, sizeof (char));
+	template[0] = '\0';
+	strcat(template, temp_dir == NULL ? "/tmp" : temp_dir);
+	strcat(template, hidden ? "/.mash.XXXXXX" : "/mash.XXXXXX");
+
+	int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
+	if (sub_stdout == -1) {
+		fprintf(stderr, "%m\n");
+		fflush(stderr);
+		free(template);
+	}
+	else
+		*path = template;
+	return sub_stdout;
 }
 
 uint8_t export(size_t argc, void **ptr) {

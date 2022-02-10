@@ -45,9 +45,9 @@ typedef struct _command Command;
 
 Command *commandInit();
 
-int commandRead(Command*, FILE*);
+int commandRead(Command*, FILE*restrict, FILE*restrict);
 
-int commandParse(Command*, FILE*);
+int commandParse(Command*, FILE*restrict, FILE*restrict);
 
 struct _arg argdup(struct _arg);
 

@@ -77,7 +77,7 @@ Alias *aliasAdd(AliasMap *info, char *name, char *str) {
 	Command temp = {};
 	temp.c_size = (temp.c_len = strlen(str)) + 1;
 	temp.c_buf = str;
-	commandParse(&temp, NULL);
+	commandParse(&temp, NULL, NULL);
 	alias->argc = temp.c_argc;
 	alias->args = temp.c_argv;
 

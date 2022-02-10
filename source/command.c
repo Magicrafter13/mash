@@ -24,10 +24,15 @@ Command *commandInit() {
 	return new_command;
 }
 
-int commandRead(Command *cmd, FILE *restrict stream) {
-	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, stream);
+int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
+	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, istream);
 	if (cmd->c_len == -1)
 		return -1;
+
+	if (ostream != NULL) {
+		fwrite(cmd->c_buf, sizeof (char), cmd->c_len + 1, ostream);
+		fflush(ostream);
+	}
 
 	if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
 		cmd->c_buf[cmd->c_len-- - 1] = '\0';
@@ -35,12 +40,12 @@ int commandRead(Command *cmd, FILE *restrict stream) {
 	return 0;
 }
 
-int commandParse(Command *cmd, FILE *restrict stream) {
+int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	Command *original = cmd;
 
 	// Read line if buffer isn't empty
 	if (cmd->c_buf == NULL || cmd->c_buf[0] == '\0')
-		if (stream == NULL || commandRead(cmd, stream) == -1)
+		if (istream == NULL || commandRead(cmd, istream, ostream) == -1)
 			return -1;
 	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 		cmd->c_buf[0] = '\0';
@@ -74,7 +79,7 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 				}
 				cmd = cmd->c_if_true;
 
-				const int parse_result = commandParse(cmd, stream);
+				const int parse_result = commandParse(cmd, istream, ostream);
 				if (parse_result == -1)
 					return -1;
 				if (parse_result) {
@@ -100,7 +105,7 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 						cmd->c_next->c_buf = cmd->c_buf;
 						cmd->c_next->c_size = cmd->c_size;
 
-						const int parse_result = commandParse(cmd->c_next, stream);
+						const int parse_result = commandParse(cmd->c_next, istream, ostream);
 						if (parse_result == -1)
 							return -1;
 						if (parse_result) {
@@ -155,7 +160,7 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 				}
 				cmd = cmd->c_if_true;
 
-				const int parse_result = commandParse(cmd, stream);
+				const int parse_result = commandParse(cmd, istream, ostream);
 				if (parse_result == -1)
 					return -1;
 				if (parse_result) {
@@ -182,7 +187,7 @@ int commandParse(Command *cmd, FILE *restrict stream) {
 						cmd->c_next->c_buf = cmd->c_buf;
 						cmd->c_next->c_size = cmd->c_size;
 
-						const int parse_result = commandParse(cmd->c_next, stream);
+						const int parse_result = commandParse(cmd->c_next, istream, ostream);
 						if (parse_result == -1)
 							return -1;
 						if (parse_result) {
