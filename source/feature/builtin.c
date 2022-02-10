@@ -47,10 +47,48 @@ uint8_t help(size_t argc, void **ptr) {
 }
 
 uint8_t cd(size_t argc, void **ptr) {
-	// TODO go to home dir when no args are given
 	char **argv = (char**)ptr;
+	char *newdir = NULL;
+	switch (argc) {
+		case 1: {
+			char *env_home = getenv("HOME");
+			if (env_home == NULL) {
+				// Step 1
+				fprintf(stderr, "HOME not set.\n");
+				return 1;
+			}
+			// Step 2
+			newdir = env_home;
+			break;
+		}
+		case 2:
+			newdir = argv[1];
+			break;
+		default:
+			return 1;
+	}
 
-	if (chdir(argv[1]) == -1) {
+	// Step 3
+	/*if (newdir[0] != '/') {
+		// Step 4
+		char *component_end = strchr(newdir, '/');
+		if (!(newdir[0] == '.' && (component_end == &newdir[1] || (component_end == &newdir[2] && newdir[1] == '.')))) {
+			// Step 5
+			// TODO implement Step 5
+		}
+
+		// Step 6
+		// Already done?
+	}*/
+
+	// Step 7
+	/*if (strcmp(newdir, "-P")) {
+		// TODO implement Step 8
+		// TODO implement Step 9
+	}*/
+
+	// Step 10
+	if (chdir(newdir) == -1) {
 		int err = errno;
 		fprintf(stderr, "%m\n");
 		return err;
