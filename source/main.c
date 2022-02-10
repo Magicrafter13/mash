@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L // fileno, strdup, mkstemp, setenv
 #define _DEFAULT_SOURCE // srandom
+#include "mash.h"
+#include "suftree.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <pwd.h>
@@ -12,12 +14,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "mash.h"
-#include "suftree.h"
-
 char *expandArgument(struct _arg);
 int mktmpfile(_Bool, char**);
-uint8_t export(size_t, void**), help(size_t, void**), cd(size_t, void**), mash_if(size_t, void**);
 
 #define BUILTIN_COUNT 3
 
@@ -39,18 +37,17 @@ int cmd_stat;
 uint8_t cmd_exit;
 
 int main(int argc, char *argv[]) {
+	// Set stderr to be line buffered
+	setvbuf(stderr, NULL, _IOLBF, 0);
+
 	// Determine shell type
 	int login = argv[0][0] == '-';
-	if (login) {
+	if (login)
 		fprintf(stderr, "This mash is a login shell.\n");
-		fflush(stderr);
-	}
 
 	int interactive = argc == 1 && isatty(fileno(stdin)), sourcing = 0, subshell = 0;
-	if (interactive) {
+	if (interactive)
 		fprintf(stderr, "This mash is interactive.\n");
-		fflush(stderr);
-	}
 
 	char *subshell_cmd;
 
@@ -80,7 +77,6 @@ int main(int argc, char *argv[]) {
 			if (input_source == NULL) {
 				int err = errno;
 				fprintf(stderr, "%m\n");
-				fflush(stderr);
 				free(config_file);
 				return err;
 			}
@@ -108,7 +104,6 @@ int main(int argc, char *argv[]) {
 								break;
 							default:
 								fprintf(stderr, "Unrecognized option '%c', ignoring.\n", c);
-								fflush(stderr);
 						}
 					}
 				}
@@ -119,7 +114,6 @@ int main(int argc, char *argv[]) {
 				if (input_source == NULL) {
 					int err = errno;
 					fprintf(stderr, "%m\n");
-					fflush(stderr);
 					return err;
 				}
 			}
@@ -192,7 +186,6 @@ int main(int argc, char *argv[]) {
 				if (errno > 11) {
 					int err = errno;
 					fprintf(stderr, "%s\n", strerror(err));
-					fflush(stderr);
 					cmd_exit = err;
 					break;
 				}
@@ -210,7 +203,6 @@ int main(int argc, char *argv[]) {
 			if (parse_result) {
 				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
 				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]);
-				fflush(stderr);
 				cmd->c_buf[0] = '\0';
 				cmd = NULL;
 				continue;
@@ -220,7 +212,6 @@ int main(int argc, char *argv[]) {
 			switch (cmd->c_type) {
 				case CMD_FREED:
 					fprintf(stderr, "CMD_FREED encountered!\n");
-					fflush(stderr);
 					break;
 				case CMD_WHILE:
 					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_next;
@@ -340,8 +331,7 @@ int main(int argc, char *argv[]) {
 
 		// Execute builtin
 		if (suftreeHas(&builtins, e_argv[0], &cmd_builtin)) {
-			/*fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
-			fflush(stderr);*/
+			//fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
 			BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc - flow_control, (void**)e_argv);
 
 			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
@@ -357,7 +347,6 @@ int main(int argc, char *argv[]) {
 			execvp(e_argv[0], e_argv);
 			int err = errno;
 			fprintf(stderr, "%m\n");
-			fflush(stderr);
 
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
 			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
@@ -591,64 +580,9 @@ int mktmpfile(_Bool hidden, char **path) {
 	int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
 	if (sub_stdout == -1) {
 		fprintf(stderr, "%m\n");
-		fflush(stderr);
 		free(template);
 	}
 	else
 		*path = template;
 	return sub_stdout;
-}
-
-uint8_t export(size_t argc, void **ptr) {
-	char **argv = (char**)ptr;
-
-	if (argc < 2)
-		return 1;
-
-	size_t var_len;
-	int overwrite = 0;
-	for (var_len = 0; argv[1][var_len] != '\0'; var_len++) {
-		if (argv[1][var_len] == '=') {
-			overwrite = 1;
-			break;
-		}
-	}
-	if (!var_len)
-		return 1;
-
-	size_t val_len = strlen(&argv[1][var_len + 1]);
-	char variable[var_len + 1], value[val_len + 1];
-	strncpy(variable, argv[1], var_len);
-	variable[var_len] = '\0';
-	if (val_len)
-		strcpy(value, &argv[1][var_len + 1]);
-	value[val_len] = '\0';
-
-	if (setenv(variable, value, overwrite) == -1) {
-		fprintf(stderr, "%m\n");
-		fflush(stderr);
-		return errno;
-	}
-	return 0;
-}
-
-uint8_t help(size_t argc, void **ptr) {
-	//char **argv = (char**)ptr;
-
-	fprintf(stderr, "Not implemented yet.\n");
-	fflush(stderr);
-	return 0;
-}
-
-uint8_t cd(size_t argc, void **ptr) {
-	// TODO go to home dir when no args are given
-	char **argv = (char**)ptr;
-
-	if (chdir(argv[1]) == -1) {
-		int err = errno;
-		fprintf(stderr, "%m\n");
-		return err;
-	}
-
-	return 0;
 }

@@ -1,9 +1,8 @@
 #ifndef COMMAND_H
 #define COMMAND_H
 
-#define _POSIX_C_SOURCE 200809L // getline, strndup, strdup
-#include <stdio.h>
 #include "suftree.h"
+#include <stdio.h>
 
 enum _arg_type {
 	ARG_NULL,

@@ -1,6 +1,7 @@
+#define _POSIX_C_SOURCE 200809L // getline, strndup, strdup
+#include "command.h"
 #include "compatibility.h"
 #include <string.h>
-#include "command.h"
 
 size_t lengthRegular(char*);
 size_t lengthSingleQuote(char*);

@@ -1,8 +1,7 @@
+#include "hashTable.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "hashTable.h"
 
 /*
  * Create a new node that points to NULL.

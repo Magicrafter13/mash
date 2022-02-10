@@ -1,10 +1,9 @@
 #define _POSIX_C_SOURCE 200809L // strdup
+#include "hashTable.h"
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-
-#include "hashTable.h"
 
 // Evaluate hash table performance.
 hashTable *evaluate(hashTable*, unsigned long long*);

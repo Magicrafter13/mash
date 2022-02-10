@@ -1,6 +1,6 @@
+#include "suftree.h"
 #include <stdlib.h>
 #include <string.h>
-#include "suftree.h"
 
 int suftreeAdd(SufTree *tree, char *str, size_t id) {
 	size_t i = 0;
