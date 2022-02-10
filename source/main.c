@@ -33,6 +33,7 @@ uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
 
 extern char **environ;
 
+pid_t cmd_pid = 1; // Don't default to 0 - will cause memory leak
 int cmd_stat;
 uint8_t cmd_exit;
 
@@ -49,15 +50,13 @@ int main(int argc, char *argv[]) {
 	if (interactive)
 		fprintf(stderr, "This mash is interactive.\n");
 
-	char *subshell_cmd;
-
 	// Initialize
-	srandom(time(NULL));
-
-	FILE *input_source = NULL;
-
 	const uid_t UID = getuid();
 	struct passwd *PASSWD = getpwuid(UID);
+	char *subshell_cmd;
+	FILE *input_source = NULL, *history_pool = NULL;
+	srandom(time(NULL));
+
 	if (interactive) { // Source config
 		input_source = open_config(PASSWD);
 		if (input_source != NULL)
@@ -101,28 +100,24 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	FILE *history_pool = NULL;
-
+	// Further initialization after successful setup and argument parsing
+	Command *cmd = NULL, *last_cmd = commandInit(); // TODO make a struct for a command - can have an array of command history to call back on!
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
-
+	size_t cmd_builtin;
 	AliasMap *aliases = aliasInit();
 
-	// User prompt (main loop)
-	// TODO make a struct for a command - can have an array of command history to call back on!
-	Command *cmd = NULL, *last_cmd = commandInit();
+	// If this is a subshell, we need to setup last_cmd in a special way
 	if (subshell) {
 		last_cmd->c_len = strlen(subshell_cmd);
 		last_cmd->c_buf = subshell_cmd;
 		input_source = NULL;
 	}
 
-	pid_t cmd_pid = 1; // Don't default to 0 - will cause memory leak
-
-	size_t cmd_builtin;
-
+	// User prompt (main loop)
 	for (;;) {
+		// cmd == NULL tells us we need to free the current command chain, then read more
 		if (cmd == NULL) {
 			if (last_cmd->c_type == CMD_WHILE) {
 				cmd = commandInit();
@@ -189,12 +184,13 @@ int main(int argc, char *argv[]) {
 			}
 			if (parse_result) {
 				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
-				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]);
+				fprintf(stderr, "%s: parse error near `%c'\n", argv[0], cmd->c_buf[0]); // TODO need to fix this
 				cmd->c_buf[0] = '\0';
 				cmd = NULL;
 				continue;
 			}
 		}
+		// Otherwise, we should advance to the next command
 		else {
 			switch (cmd->c_type) {
 				case CMD_FREED:
@@ -213,6 +209,7 @@ int main(int argc, char *argv[]) {
 				default:
 					cmd = cmd->c_next;
 			}
+			// If command is now NULL, we need to jump back to the top so we can free memory
 			if (cmd == NULL)
 				continue;
 		}
@@ -222,33 +219,36 @@ int main(int argc, char *argv[]) {
 		 */
 
 		// Empty/blank command
-		if (cmd->c_type == CMD_EMPTY)
-			continue;
-		if (cmd->c_argc == 0) // TODO: do we need this...?
+		if (cmd->c_type == CMD_EMPTY || cmd->c_argc == 0) // TODO: do we need to check argc...?
 			continue;
 
-		int flow_control = 0; // SHOULD ONLY BE ZERO OR ONE
+		// Check if command is if, while, for, etc
+		_Bool flow_control = 0;
 		if (cmd->c_argv[0].type == ARG_BASIC_STRING)
 			if (!strcmp(cmd->c_argv[0].str, "while") || !strcmp(cmd->c_argv[0].str, "if"))
 				flow_control = 1;
+		// Attempt to parse aliases
 		aliasResolve(aliases, cmd);
-		// Expand command
+		// Expand command into string array
+		_Bool expanded = 1;
 		char *e_argv[cmd->c_argc + 1 - flow_control];
 		for (size_t i = flow_control; i < cmd->c_argc; ++i) {
 			char *full_arg = expandArgument(cmd->c_argv[i]);
 			if (full_arg == NULL) {
 				for (size_t e = 0; e < i; ++e)
 					free(e_argv[e]);
-				free(last_cmd->c_buf);
-				commandFree(last_cmd);
-				if (history_pool != NULL) {
+				expanded = 0;
+				// If we are a child that returned from the fork in expandArgument
+				if (cmd_pid == 0 && history_pool != NULL) {
 					fclose(history_pool);
 					history_pool = NULL;
 				}
-				goto exit_cleanup; // Screw it, I'm using a goto and you can't stop me.
+				break;
 			}
 			e_argv[i - flow_control] = full_arg;
 		}
+		if (!expanded)
+			break;
 		e_argv[cmd->c_argc - flow_control] = NULL;
 
 		/*fprintf(stderr, "Execing:\n");
@@ -338,7 +338,8 @@ int main(int argc, char *argv[]) {
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
 			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
 				free(e_argv[i]);
-			fclose(history_pool);
+			if (history_pool != NULL)
+				fclose(history_pool);
 			history_pool = NULL;
 
 			cmd_exit = err;
@@ -416,9 +417,9 @@ char *expandArgument(CmdArg arg) {
 			if (sub_stdout == -1)
 				return NULL;
 
-			pid_t subshell_pid = fork();
+			pid_t cmd_pid = fork();
 			// Run subshell
-			if (subshell_pid == 0) {
+			if (cmd_pid == 0) {
 				dup2(sub_stdout, STDOUT_FILENO);
 				//close(STDIN_FILENO); // Huh... other shells don't do this
 				char *argv[4] = {
@@ -436,7 +437,7 @@ char *expandArgument(CmdArg arg) {
 				return NULL;
 			}
 			// Wait for subshell to finish,
-			waitpid(subshell_pid, &cmd_stat, 0);
+			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
 
 			// Allocate memory for the file
