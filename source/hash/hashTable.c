@@ -21,10 +21,8 @@ unsigned long long crc64(char* string);
  */
 hashTable *createTable(unsigned long long buckets) {
 	hashTable *table = calloc(buckets, sizeof(hashTable));
-	for (unsigned long long bucket = 0; bucket < buckets; bucket++) {
-		table[bucket].data = NULL;
+	for (unsigned long long bucket = 0; bucket < buckets; bucket++)
 		table[bucket].next = NULL;
-	}
 	return table;
 }
 
@@ -36,17 +34,16 @@ hashTable *createTable(unsigned long long buckets) {
  * It will also set a pointer 'entry' to the corresponding strhash structure
  * that has been created (or if it already existed, that one).
  */
-hashTable *tableAdd(hashTable *table, unsigned long long *buckets, char *str, struct strhash **entry) {
+hashTable *tableAdd(hashTable *table, unsigned long long *buckets, char *str, TableEntry **entry) {
 	// Increment counter/add new
 	unsigned long long hash = crc64(str);
 	int bucket = hash % *buckets;
-	struct node *strNode = search(&table[bucket], hash, str);
+	Node *strNode = search(&table[bucket], hash, str);
 	// If search returns NULL, this is a new string
 	if (strNode == NULL) {
-		struct strhash *strhash = malloc(sizeof (struct strhash));
-		*strhash = (struct strhash){ .hash = hash, .str = strdup(str), .data = NULL };
-		add(&table[bucket], strhash);
-		*entry = strhash;
+		TableEntry new_entry = { .hash = hash, .key = strdup(str), .data = NULL };
+		add(&table[bucket], new_entry); // TODO handle 0 (bad return)
+		*entry = &table[bucket].next->entry;
 
 		// Check hash table
 		if (!CHECK_AVERAGE) { // If this flag is not set, we will only test maximum
@@ -55,7 +52,7 @@ hashTable *tableAdd(hashTable *table, unsigned long long *buckets, char *str, st
 			// of strings, it will increase the table size.
 			// We use the sentinel string pointer as a long representing how many items are
 			// in the linked list (bucket).
-			if ((long)(table[bucket].data) >= MAX_SINGLE_COLLISIONS)
+			if (table[bucket].size >= MAX_SINGLE_COLLISIONS)
 				table = growTable(table, buckets);
 		}
 		else {                // Otherwise, if the flag *is* set, we will also check
@@ -65,21 +62,21 @@ hashTable *tableAdd(hashTable *table, unsigned long long *buckets, char *str, st
 	}
 	// Otherwise, it's already there, and we can set the pointer to the existing structure
 	else {
-		*entry = strNode->data;
+		*entry = &strNode->entry;
 		//free(str);
 	}
 
 	return table;
 }
 
-struct strhash *tableSearch(hashTable *table, unsigned long long buckets, char *str) {
+TableEntry *tableSearch(hashTable *table, unsigned long long buckets, char *str) {
 	// Hash given string and check proper bucket
 	unsigned long long hash = crc64(str);
 	int bucket = hash % buckets;
-	struct node *strNode = search(&table[bucket], hash, str);
+	Node *strNode = search(&table[bucket], hash, str);
 	if (strNode == NULL)
 		return NULL;
-	return strNode->data;
+	return &strNode->entry;
 }
 
 hashTable *tableRemove(hashTable *table, unsigned long long *buckets, char *str) {
@@ -101,7 +98,7 @@ hashTable *evaluate(hashTable *map, unsigned long long *mapSize) {
 	// Check each bucket, and calculate average string count
 	for (unsigned long long bucket = 0; bucket < *mapSize; bucket++) {
 		int stringsInBucket = 0;
-		for (struct node *string = map[bucket].next; string != NULL; string = string->next)
+		for (Node *string = map[bucket].next; string != NULL; string = string->next)
 			stringsInBucket++;
 
 		// Check threshold
@@ -133,22 +130,22 @@ hashTable *growTable(hashTable *map, unsigned long long *mapSize) {
 	/*
 	 * Move to new map
 	 */
-	map = realloc(map, newMapSize * sizeof(struct node));
+	map = realloc(map, newMapSize * sizeof (Node));
 	for (unsigned long long bucket = 0; bucket < *mapSize; bucket++) {
-		map[bucket].data = NULL;
+		map[bucket].size = 0;
 		map[bucket].temp = map[bucket].next;
 		map[bucket].next = NULL;
 	}
 	for (unsigned long long bucket = *mapSize; bucket < newMapSize; bucket++)
-		map[bucket] = (struct node){ NULL, NULL, NULL };
+		map[bucket] = (Node){};
 	for (unsigned long long bucket = 0; bucket < *mapSize; bucket++) {
-		for (struct node *stringNode = map[bucket].temp; stringNode != NULL; ) {
-			int newBucket = stringNode->data->hash % newMapSize;
-			struct node *old = map[newBucket].next;
+		for (Node *stringNode = map[bucket].temp; stringNode != NULL; ) {
+			int newBucket = stringNode->entry.hash % newMapSize;
+			Node *old = map[newBucket].next;
 			map[newBucket].next = stringNode;
 			stringNode = stringNode->next;
 			map[newBucket].next->next = old;
-			map[newBucket].data = (struct strhash*)((long)map[newBucket].data + 1);
+			++map[newBucket].size;
 		}
 	}
 

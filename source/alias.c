@@ -12,7 +12,7 @@ AliasMap *aliasInit() {
 void aliasFree(AliasMap *info) {
 	for (unsigned long long bucket = 0; bucket < info->buckets; ++bucket) {
 		for (struct node *node = info->map[bucket].next; node != NULL; node = node->next) {
-			Alias *alias = node->data->data;
+			Alias *alias = node->entry.data;
 			free(alias->str);
 			for (size_t i = 0; i < alias->argc; ++i)
 				freeArg(alias->args[i]);
@@ -30,7 +30,7 @@ void aliasResolve(AliasMap *info, Command *cmd) {
 	if (cmd->c_argv[0].type != ARG_BASIC_STRING)
 		return;
 
-	struct strhash *entry = tableSearch(info->map, info->buckets, cmd->c_argv[0].str);
+	TableEntry *entry = tableSearch(info->map, info->buckets, cmd->c_argv[0].str);
 	// Command is not a known alias
 	if (entry == NULL)
 		return;
@@ -49,12 +49,12 @@ void aliasResolve(AliasMap *info, Command *cmd) {
 		cmd->c_argv[i] = argdup(alias->args[i]);
 	// Check if new argv[0] is the same as the alias name. If not, run through again.
 	// Shouldn't do this if they are the same, since it's perfectly normal to alias 'ls' to 'ls --color=auto' for example (infinite recursion).
-	if (strcmp(cmd->c_argv[0].str, entry->str))
+	if (strcmp(cmd->c_argv[0].str, entry->key))
 		aliasResolve(info, cmd);
 }
 
 Alias *aliasAdd(AliasMap *info, char *name, char *str) {
-	struct strhash *entry;
+	TableEntry *entry;
 	info->map = tableAdd(info->map, &info->buckets, name, &entry);
 
 	// Alias already existed, so we must free some data
@@ -66,10 +66,9 @@ Alias *aliasAdd(AliasMap *info, char *name, char *str) {
 		free(alias->args);
 	}
 	// Otherwise create a new one
-	else {
-		entry->data = malloc(sizeof (Alias));
-		alias = entry->data;
-	}
+	else
+		alias = entry->data = malloc(sizeof (Alias));
+	// TODO handle NULL (OOM)
 
 	alias->str = strdup(str);
 
@@ -85,7 +84,7 @@ Alias *aliasAdd(AliasMap *info, char *name, char *str) {
 }
 
 int aliasRemove(AliasMap *info, char *name) {
-	struct strhash *entry = tableSearch(info->map, info->buckets, name);
+	TableEntry *entry = tableSearch(info->map, info->buckets, name);
 	if (entry == NULL)
 		return 0;
 
@@ -102,7 +101,7 @@ int aliasRemove(AliasMap *info, char *name) {
 }
 
 int aliasPrint(AliasMap *info, char *name, FILE *restrict stream) {
-	struct strhash *entry = tableSearch(info->map, info->buckets, name);
+	TableEntry *entry = tableSearch(info->map, info->buckets, name);
 	if (entry == NULL)
 		return 1;
 
@@ -112,9 +111,9 @@ int aliasPrint(AliasMap *info, char *name, FILE *restrict stream) {
 
 void aliasList(AliasMap *info, FILE *restrict stream) {
 	for (unsigned long long bucket = 0; bucket < info->buckets; ++bucket) {
-		long entries = (long)info->map[bucket].data, entry = 0;
+		long entries = info->map[bucket].size, entry = 0;
 		if (entries > 0)
 			for (struct node *node = info->map[bucket].next; entry < entries; ++entry, node = node->next)
-				fprintf(stream, "%s=%s\n", node->data->str, ((Alias*)node->data->data)->str);
+				fprintf(stream, "%s=%s\n", node->entry.key, ((Alias*)node->entry.data)->str);
 	}
 }

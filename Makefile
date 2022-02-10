@@ -8,6 +8,8 @@ CSRC   = $(shell find $(SOURCE) -type f -name '*.c')
 CXXSRC = $(shell find $(SOURCE) -type f -name '*.cpp')
 OBJS   = $(CSRC:$(SOURCE)/%.c=$(BUILD)/%.o) $(CXXSRC:$(SOURCE)/%.cpp=$(BUILD)/%.o)
 D_OBJS = $(CSRC:$(SOURCE)/%.c=$(DEBUG)/%.o) $(CXXSRC:$(SOURCE)/%.cpp=$(DEBUG)/%.o)
+DIRS   = $(shell find $(SOURCE) -mindepth 1 -type d -printf '$(BUILD)/%f\n')
+D_DIRS = $(shell find $(SOURCE) -mindepth 1 -type d -printf '$(DEBUG)/%f\n')
 
 CFLAGS   =
 CXXFLAGS =
@@ -15,11 +17,11 @@ CPPFLAGS = -c -I$(INCLUDE) -Wall -Werror=implicit-function-declaration -std=c99
 LDFLAGS  =
 LDLIBS   =
 
-all: $(BUILD)
+all: $(BUILD) $(DIRS)
 	@$(MAKE) $(BUILD)/$(PROG) --no-print-directory
 	@ln -sf $(BUILD)/$(PROG) $(PROG)
 
-debug: $(DEBUG)
+debug: $(DEBUG) $(D_DIRS)
 	@$(MAKE) $(DEBUG)/$(PROG) --no-print-directory
 	@ln -sf $(DEBUG)/$(PROG) $(PROG)
 
@@ -56,5 +58,5 @@ $(BUILD)/%.o $(DEBUG)/%.o: $(SOURCE)/%.c
 $(BUILD)/%.o $(DEBUG)/%.o: $(SOURCE)/%.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
-$(BUILD) $(DEBUG):
+$(BUILD) $(DEBUG) $(DIRS) $(D_DIRS):
 	mkdir -p $@

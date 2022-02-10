@@ -317,7 +317,9 @@ int main(int argc, char *argv[]) {
 					fprintf(stderr, "No such alias `%s'\n", e_argv[v]);
 					cmd_exit = 1;
 				}
+				free(e_argv[v]);
 			}
+			free(e_argv[0]);
 			continue;
 		}
 

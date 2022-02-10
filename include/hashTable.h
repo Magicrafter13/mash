@@ -1,39 +1,50 @@
 #ifndef MR_HASHTABLE_H
 #define MR_HASHTABLE_H
 
-/**************
- * Structures *
- **************/
-
-struct strhash {
+/*
+ * Hash Table (Bucket) Entry
+ * Contains a key,value pair, as well as its full hash.
+ */
+struct _entry {
 	unsigned long long hash;
-	char *str;
+	char *key;
 	void *data;
 };
+typedef struct _entry TableEntry;
 
 /*
  * Linked list node.
- * Stores a pointer to a hashed string, and the next node in the list.
+ * The sentinel node has a temporary pointer, and stores the number of nodes in the chain.
+ * All other nodes store a hash table entry.
+ * Both types have a pointer to the next node in the chain.
  */
-struct node {
-	struct strhash *data;
-	struct node *temp;
-	struct node *next;
+struct _node {
+	union {
+		// Hash data
+		struct _entry entry;
+		// Temporary storage for sentinel node
+		struct {
+			long size;
+			struct _node *temp;
+		};
+	};
+	struct _node *next;
 };
+typedef struct _node Node;
 
 // Initialize a new sentinel node.
-struct node *init();
+Node *init();
 
 // Add a new value into the list of nodes.
-int add(struct node*, struct strhash*);
+int add(Node*, TableEntry);
 
 // Checks for a value in the list.
-struct node *search(struct node*, unsigned long long, char*);
+Node *search(Node*, unsigned long long, char*);
 
-int removeNode(struct node*, unsigned long long, char*);
+int removeNode(Node*, unsigned long long, char*);
 
 // Free all nodes in a list from memory.
-void free_nodes(struct node*);
+void free_nodes(Node*);
 
 #define CHECK_AVERAGE 0 // Whether or not to check the average collisions
 
@@ -43,16 +54,16 @@ void free_nodes(struct node*);
 
 #define GROWTH_FACTOR 8 // Bucket count increase factor
 
-typedef struct node hashTable;
+typedef struct _node hashTable;
 
 // Create a new hash table.
 hashTable *createTable(unsigned long long buckets);
 
 // Add a string to the hash table.
-hashTable *tableAdd(hashTable*, unsigned long long*, char*, struct strhash**);
+hashTable *tableAdd(hashTable*, unsigned long long*, char*, TableEntry**);
 
 // Search hash table for a string
-struct strhash *tableSearch(hashTable*, unsigned long long, char*);
+TableEntry *tableSearch(hashTable*, unsigned long long, char*);
 
 hashTable *tableRemove(hashTable*, unsigned long long*, char*);
 

@@ -2,14 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "node.h"
+#include "hashTable.h"
 
 /*
  * Create a new node that points to NULL.
  * Returns pointer to this node.
  */
-struct node *init() {
-	struct node *sentinel = malloc(sizeof(struct node));
+Node *init() {
+	Node *sentinel = malloc(sizeof (Node));
 	sentinel->next = NULL;
 	return sentinel;
 }
@@ -18,24 +18,24 @@ struct node *init() {
  * Add a node containing a hashed string as its data to the list.
  * Returning 1 if successful, and 0 if not.
  */
-int add(struct node *ll, struct strhash *strhash) {
+int add(Node *ll, struct _entry entry) {
 	// Make sure sentinel exists
 	if (ll == NULL)
 		return 0;
 
 	// Find next empty node
-	struct node *new_node = malloc(sizeof(struct node));
+	Node *new_node = malloc(sizeof (Node));
 
 	// If malloc returned NULL, memory is full!
 	if (new_node == NULL)
 		return 0;
 
 	// Update previous_node to point to our new node, and set the new node to point to current_node
-	*new_node = (struct node){ strhash, NULL, ll->next == NULL ? NULL : ll->next };
+	*new_node = (Node){ .entry = entry, .next = ll->next };
 	ll->next = new_node;
 
 	// Use sentinel node's unused pointer as counter for number of items in list :)
-	ll->data = (struct strhash*)((long)ll->data + 1);
+	++ll->size;
 
 	return 1;
 }
@@ -44,29 +44,28 @@ int add(struct node *ll, struct strhash *strhash) {
  * Check if a node contains a string.
  * If it does, return the node that contains it, otherwise NULL.
  */
-struct node *search(struct node *ll, unsigned long long hash, char *str) {
-	for (struct node *n = ll->next; n != NULL; n = n->next) {
+Node *search(Node *ll, unsigned long long hash, char *str) {
+	for (Node *n = ll->next; n != NULL; n = n->next) {
 		// If the hash doesn't match, we know the string can't, so don't waste cycles
 		// on strcmp!
-		if (hash != n->data->hash)
+		if (hash != n->entry.hash)
 			continue;
 
-		if (!strcmp(n->data->str, str))
+		if (!strcmp(n->entry.key, str))
 			return n;
 	}
 
 	return NULL;
 }
 
-int removeNode(struct node *ll, unsigned long long hash, char *str) {
-	for (struct node *p = ll, *n = p->next; n != NULL; p = n, n = n->next) {
-		if (hash != n->data->hash)
+int removeNode(Node *ll, unsigned long long hash, char *str) {
+	for (Node *p = ll, *n = p->next; n != NULL; p = n, n = n->next) {
+		if (hash != n->entry.hash)
 			continue;
 
-		if (!strcmp(n->data->str, str)) {
+		if (!strcmp(n->entry.key, str)) {
 			p->next = n->next;
-			free(n->data->str);
-			free(n->data);
+			free(n->entry.key);
 			free(n);
 			return 1;
 		}
@@ -78,12 +77,11 @@ int removeNode(struct node *ll, unsigned long long hash, char *str) {
 /*
  * Free all nodes created with malloc in provided list.
  */
-void free_nodes(struct node *ll) {
+void free_nodes(Node *ll) {
 	if (ll == NULL)
 		return;
-	struct node* next = ll->next;
-	free(ll->data->str);
-	free(ll->data);
+	Node *next = ll->next;
+	free(ll->entry.key);
 	free(ll);
 	return free_nodes(next);
 }
