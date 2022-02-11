@@ -222,17 +222,12 @@ int main(int argc, char *argv[]) {
 		if (cmd->c_type == CMD_EMPTY || cmd->c_argc == 0) // TODO: do we need to check argc...?
 			continue;
 
-		// Check if command is if, while, for, etc
-		_Bool flow_control = 0;
-		if (cmd->c_argv[0].type == ARG_BASIC_STRING)
-			if (!strcmp(cmd->c_argv[0].str, "while") || !strcmp(cmd->c_argv[0].str, "if"))
-				flow_control = 1;
 		// Attempt to parse aliases
 		aliasResolve(aliases, cmd);
 		// Expand command into string array
 		_Bool expanded = 1;
-		char *e_argv[cmd->c_argc + 1 - flow_control];
-		for (size_t i = flow_control; i < cmd->c_argc; ++i) {
+		char *e_argv[cmd->c_argc + 1];
+		for (size_t i = 0; i < cmd->c_argc; ++i) {
 			char *full_arg = expandArgument(cmd->c_argv[i]);
 			if (full_arg == NULL) {
 				for (size_t e = 0; e < i; ++e)
@@ -245,11 +240,11 @@ int main(int argc, char *argv[]) {
 				}
 				break;
 			}
-			e_argv[i - flow_control] = full_arg;
+			e_argv[i] = full_arg;
 		}
 		if (!expanded)
 			break;
-		e_argv[cmd->c_argc - flow_control] = NULL;
+		e_argv[cmd->c_argc] = NULL;
 
 		/*fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
@@ -279,14 +274,14 @@ int main(int argc, char *argv[]) {
 					}
 				}
 			}
-			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v)
 				free(e_argv[v]);
 			continue;
 		}
 
 		// Check for unalias
 		if (!strcmp(e_argv[0], "unalias")) {
-			for (size_t v = 1; v < cmd->c_argc - flow_control; ++v) {
+			for (size_t v = 1; v < cmd->c_argc; ++v) {
 				if (!aliasRemove(aliases, e_argv[v])) {
 					fprintf(stderr, "No such alias `%s'\n", e_argv[v]);
 					cmd_exit = 1;
@@ -299,7 +294,7 @@ int main(int argc, char *argv[]) {
 
 		// Exit shell
 		if (!strcmp(e_argv[0], "exit")) {
-			if (cmd->c_argc > 1 + flow_control) {
+			if (cmd->c_argc > 1) {
 				int temp;
 				sscanf(e_argv[1], "%u", &temp);
 				cmd_exit = temp % 256;
@@ -307,7 +302,7 @@ int main(int argc, char *argv[]) {
 			else
 				cmd_exit = 0;
 
-			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v)
 				free(e_argv[v]);
 
 			if (!sourcing)
@@ -319,9 +314,9 @@ int main(int argc, char *argv[]) {
 		// Execute builtin
 		if (suftreeHas(&builtins, e_argv[0], &cmd_builtin)) {
 			//fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
-			BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc - flow_control, (void**)e_argv);
+			BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc, (void**)e_argv);
 
-			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v)
 				free(e_argv[v]);
 			continue;
 		}
@@ -335,7 +330,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "%m\n");
 				cmd_exit = 1;
 			}
-			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v)
 				free(e_argv[v]);
 			continue;
 		}
@@ -360,7 +355,7 @@ int main(int argc, char *argv[]) {
 				}
 			}
 			free(value);
-			for (size_t v = 0; v < cmd->c_argc - flow_control; ++v)
+			for (size_t v = 0; v < cmd->c_argc; ++v)
 				free(e_argv[v]);
 			continue;
 		}
@@ -375,7 +370,7 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "%m\n");
 
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
-			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
+			for (size_t i = 0; i < cmd->c_argc; ++i)
 				free(e_argv[i]);
 			if (history_pool != NULL)
 				fclose(history_pool);
@@ -388,7 +383,7 @@ int main(int argc, char *argv[]) {
 		else {
 			waitpid(cmd_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
-			for (size_t i = 0; i < cmd->c_argc - flow_control; ++i)
+			for (size_t i = 0; i < cmd->c_argc; ++i)
 				free(e_argv[i]);
 		}
 	}

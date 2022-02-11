@@ -67,6 +67,14 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 		if (cmd->c_argv[0].type == ARG_BASIC_STRING) {
 			if (!strcmp(cmd->c_argv[0].str, "while")) {
+				// Shift out "while" arg
+				freeArg(cmd->c_argv[0]);
+				for (size_t i = 1; i <= cmd->c_argc; ++i)
+					cmd->c_argv[i - 1] = cmd->c_argv[i];
+				// Abort if no arguments remain
+				if (--cmd->c_argc == 0)
+					return 1; // TODO set error length thing
+
 				Command *const while_cmd = cmd;
 				cmd->c_type = CMD_WHILE;
 				cmd->c_if_true = cmd->c_next;
@@ -148,6 +156,14 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 				}
 			}
 			else if (!strcmp(cmd->c_argv[0].str, "if")) {
+				// Shift out "if" arg
+				freeArg(cmd->c_argv[0]);
+				for (size_t i = 1; i <= cmd->c_argc; ++i)
+					cmd->c_argv[i - 1] = cmd->c_argv[i];
+				// Abort if no arguments remain
+				if (--cmd->c_argc == 0)
+					return 1; // TODO set error length thing
+
 				Command *const if_cmd = cmd;
 				cmd->c_type = CMD_IF;
 				cmd->c_if_true = cmd->c_next;
