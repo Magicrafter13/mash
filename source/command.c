@@ -386,9 +386,17 @@ size_t lengthDollarExp(char *buf) {
 				}
 				return l + 1;
 			default:
-				if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
-					continue;
-				return l;
+				if (c >= '0' && c <= '9') {
+					if (l == 1) {
+						while (c = buf[++l], c >= '0' && c <= '9');
+						return l;
+					}
+				}
+				else {
+					if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_')
+						continue;
+					return l;
+				}
 		}
 	}
 	return l;

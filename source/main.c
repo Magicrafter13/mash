@@ -14,7 +14,7 @@
 #include <time.h>
 #include <unistd.h>
 
-char *expandArgument(CmdArg);
+char *expandArgument(CmdArg, int, char**);
 int mktmpfile(_Bool, char**);
 
 #define BUILTIN_COUNT 3
@@ -228,7 +228,7 @@ int main(int argc, char *argv[]) {
 		_Bool expanded = 1;
 		char *e_argv[cmd->c_argc + 1];
 		for (size_t i = 0; i < cmd->c_argc; ++i) {
-			char *full_arg = expandArgument(cmd->c_argv[i]);
+			char *full_arg = expandArgument(cmd->c_argv[i], (sourcing || !interactive) ? argc - 1 : argc, (sourcing || !interactive) ? &argv[1] : argv);
 			if (full_arg == NULL) {
 				for (size_t e = 0; e < i; ++e)
 					free(e_argv[e]);
@@ -419,22 +419,27 @@ int main(int argc, char *argv[]) {
 	return cmd_exit;
 }
 
-char *expandArgument(CmdArg arg) {
+char *expandArgument(CmdArg arg, int argc, char **argv) {
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
 			return strdup(arg.str);
 		case ARG_VARIABLE:
+			if (arg.str[0] >= '0' && arg.str[0] <= '9') {
+				unsigned position;
+				sscanf(arg.str, "%u", &position);
+				return strdup(position >= argc ? "" : argv[position]);
+			}
 			if (!strcmp(arg.str, "RANDOM")) {
 				char number[12];
 				sprintf(number, "%lu", random());
 				return strdup(number);
 			}
-			else if (!strcmp(arg.str, "?")) {
+			if (!strcmp(arg.str, "?")) {
 				char number[4];
 				sprintf(number, "%"PRIu8, cmd_exit);
 				return strdup(number);
 			}
-			else if (!strcmp(arg.str, "$")) {
+			if (!strcmp(arg.str, "$")) {
 				char number[21];
 				sprintf(number, "%ld", (long)getpid());
 				return strdup(number);
@@ -516,26 +521,26 @@ char *expandArgument(CmdArg arg) {
 			size_t sub_count = 0;
 			while (arg.sub[sub_count].type != ARG_NULL)
 				++sub_count;
-			char *argv[sub_count];
+			char *sub_argv[sub_count];
 			for (size_t i = 0; i < sub_count; ++i) {
-				char *e = expandArgument(arg.sub[i]);
+				char *e = expandArgument(arg.sub[i], argc, argv);
 				if (e == NULL) {
 					for (size_t f = 0; f < i; ++f)
-						free(argv[f]);
+						free(sub_argv[f]);
 					return NULL;
 				}
-				argv[i] = e;
+				sub_argv[i] = e;
 			}
 
 			// Find length of strings together
 			size_t length = 0;
 			for (size_t i = 0; i < sub_count; ++i)
-				length += strlen(argv[i]);
+				length += strlen(sub_argv[i]);
 			char *expanded_string = calloc(length + 1, sizeof (char));
 			expanded_string[0] = '\0';
 			for (size_t i = 0; i < sub_count; ++i) {
-				strcat(expanded_string, argv[i]);
-				free(argv[i]);
+				strcat(expanded_string, sub_argv[i]);
+				free(sub_argv[i]);
 			}
 			return expanded_string;
 		}
