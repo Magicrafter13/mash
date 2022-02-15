@@ -180,6 +180,8 @@ int main(int argc, char *argv[]) {
 				}
 				if (!interactive)
 					fclose(input_source);
+				else
+					fprintf(stderr, "\n");
 				break;
 			}
 			if (parse_result) {

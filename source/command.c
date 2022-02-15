@@ -497,6 +497,12 @@ int commandTokenize(Command *cmd, char *buf) {
 				current += dollar_len - 1;
 				break;
 			}
+			case '~':
+				if (!inDoubleQuote && cmd->c_argv[cmd->c_argc].type == ARG_NULL) {
+					cmd->c_argv[cmd->c_argc] = (CmdArg){ .type = ARG_VARIABLE, .str = strdup("HOME") };
+					break;
+				}
+				goto stupid_single_quote_goto;
 			case ';': // End of this command
 				if (current == 0) {
 					cmd->c_len = 0;
