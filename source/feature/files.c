@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L // mkstemp
 #include "mash.h"
 #include <pwd.h>
 #include <stdio.h>
@@ -83,4 +84,27 @@ FILE *open_history(struct passwd *PASSWD) {
 		fprintf(stderr, "Could not open file at `%s', history not saved.\n", history_path);
 	}
 	return file;
+}
+
+int mktmpfile(_Bool hidden, char **path) {
+	size_t path_size = 13 + (hidden ? 1 : 0);
+	char *temp_dir = getenv("TMPDIR");
+	if (temp_dir == NULL)
+		path_size += 4;
+	else
+		path_size += strlen(temp_dir);
+
+	char *template = calloc(path_size, sizeof (char));
+	template[0] = '\0';
+	strcat(template, temp_dir == NULL ? "/tmp" : temp_dir);
+	strcat(template, hidden ? "/.mash.XXXXXX" : "/mash.XXXXXX");
+
+	int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
+	if (sub_stdout == -1) {
+		fprintf(stderr, "%m\n");
+		free(template);
+	}
+	else
+		*path = template;
+	return sub_stdout;
 }

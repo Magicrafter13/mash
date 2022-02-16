@@ -48,7 +48,7 @@ uninstall:
 $(BUILD)/$(PROG): $(OBJS)
 	$(CC) $(LDLIBS) $^ -o $@
 
-$(DEBUG)/$(PROG): CPPFLAGS += -g
+$(DEBUG)/$(PROG): CPPFLAGS += -g -DDEBUG
 $(DEBUG)/$(PROG): $(D_OBJS)
 	$(CC) $(LDLIBS) $^ -o $@
 

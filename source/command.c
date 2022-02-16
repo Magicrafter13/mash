@@ -463,7 +463,9 @@ int commandTokenize(Command *cmd, char *buf) {
 		else
 			++end;
 	}
-	//fprintf(stderr, "Argc: %lu\n", argc);
+#ifdef DEBUG
+	fprintf(stderr, "Argc: %lu\n", argc);
+#endif
 	cmd->c_argc = argc;
 	if (cmd->c_argc == 0) {
 		memmove(buf, &buf[end], cmd->c_len - end + 1);

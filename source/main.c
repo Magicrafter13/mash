@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L // fileno, strdup, mkstemp, setenv
+#define _POSIX_C_SOURCE 200809L // fileno, strdup, setenv
 #define _DEFAULT_SOURCE // srandom
 #include "mash.h"
 #include "suftree.h"
@@ -248,10 +248,12 @@ int main(int argc, char *argv[]) {
 			break;
 		e_argv[cmd->c_argc] = NULL;
 
-		/*fprintf(stderr, "Execing:\n");
+#ifdef DEBUG
+		fprintf(stderr, "Execing:\n");
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			fprintf(stderr, "%s ", e_argv[i]);
-		fprintf(stderr, "\n");*/
+		fprintf(stderr, "\n");
+#endif
 
 		// Check for alias
 		if (!strcmp(e_argv[0], "alias")) {
@@ -315,7 +317,9 @@ int main(int argc, char *argv[]) {
 
 		// Execute builtin
 		if (suftreeHas(&builtins, e_argv[0], &cmd_builtin)) {
-			//fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
+#ifdef DEFINE
+			fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
+#endif
 			BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc, (void**)e_argv);
 
 			for (size_t v = 0; v < cmd->c_argc; ++v)
@@ -460,7 +464,6 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 			// Run subshell
 			if (cmd_pid == 0) {
 				dup2(sub_stdout, STDOUT_FILENO);
-				//close(STDIN_FILENO); // Huh... other shells don't do this
 				char *argv[4] = {
 					"mash",
 					"-c",
@@ -550,27 +553,4 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 		default:
 			return NULL;
 	}
-}
-
-int mktmpfile(_Bool hidden, char **path) {
-	size_t path_size = 13 + (hidden ? 1 : 0);
-	char *temp_dir = getenv("TMPDIR");
-	if (temp_dir == NULL)
-		path_size += 4;
-	else
-		path_size += strlen(temp_dir);
-
-	char *template = calloc(path_size, sizeof (char));
-	template[0] = '\0';
-	strcat(template, temp_dir == NULL ? "/tmp" : temp_dir);
-	strcat(template, hidden ? "/.mash.XXXXXX" : "/mash.XXXXXX");
-
-	int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
-	if (sub_stdout == -1) {
-		fprintf(stderr, "%m\n");
-		free(template);
-	}
-	else
-		*path = template;
-	return sub_stdout;
 }
