@@ -3,11 +3,11 @@
 #include "compatibility.h"
 #include <string.h>
 
-size_t lengthRegular(char*);
-size_t lengthSingleQuote(char*);
-size_t lengthDoubleQuote(char*);
-size_t lengthRegInDouble(char *);
-size_t lengthDollarExp(char*);
+ssize_t lengthRegular(char*);
+ssize_t lengthSingleQuote(char*);
+ssize_t lengthDoubleQuote(char*);
+ssize_t lengthRegInDouble(char *);
+ssize_t lengthDollarExp(char*);
 int commandTokenize(Command*, char*);
 
 Command *commandInit() {
@@ -48,7 +48,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	if (cmd->c_buf == NULL || cmd->c_buf[0] == '\0')
 		if (istream == NULL || commandRead(cmd, istream, ostream) == -1)
 			return -1;
-	if (cmd->c_buf[0] == '\n' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
+	if (cmd->c_buf[0] == '\0' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 		cmd->c_buf[0] = '\0';
 		cmd->c_type = CMD_EMPTY;
 		return 0;
@@ -69,7 +69,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 			if (!strcmp(cmd->c_argv[0].str, "while")) {
 				// Shift out "while" arg
 				freeArg(cmd->c_argv[0]);
-				for (size_t i = 1; i <= cmd->c_argc; ++i)
+				for (size_t i = 1; i < cmd->c_argc; ++i)
 					cmd->c_argv[i - 1] = cmd->c_argv[i];
 				// Abort if no arguments remain
 				if (--cmd->c_argc == 0)
@@ -158,7 +158,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 			else if (!strcmp(cmd->c_argv[0].str, "if")) {
 				// Shift out "if" arg
 				freeArg(cmd->c_argv[0]);
-				for (size_t i = 1; i <= cmd->c_argc; ++i)
+				for (size_t i = 1; i < cmd->c_argc; ++i)
 					cmd->c_argv[i - 1] = cmd->c_argv[i];
 				// Abort if no arguments remain
 				if (--cmd->c_argc == 0)
@@ -186,7 +186,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 				}
 
 				// Check if command is then
-				if (cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "then")) {
+				if (cmd->c_argc == 0 || cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "then")) {
 					original->c_len = error_length;
 					return 1;
 				}
@@ -277,8 +277,8 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	return 0;
 }
 
-size_t lengthRegular(char *buf) {
-	size_t l = 0;
+ssize_t lengthRegular(char *buf) {
+	ssize_t l = 0;
 	for (char c; c = buf[l], c != '\0'; ++l) {
 		switch (c) {
 			case '\'':
@@ -302,21 +302,23 @@ size_t lengthRegular(char *buf) {
 	}
 	return l;
 }
-size_t lengthSingleQuote(char *buf) {
-	char c;
-	if (buf[0] == '\'')
-		for (size_t l = 1; c = buf[l], c != '\0'; ++l)
-			if (c == '\'')
-				return l + 1;
-	return 0;
+
+ssize_t lengthSingleQuote(char *buf) {
+	if (buf[0] != '\'')
+		return 0;
+	ssize_t l = 1;
+	for (char c; c = buf[l], c != '\0'; ++l)
+		if (c == '\'')
+			return l + 1;
+	return -l;
 }
 
-size_t lengthDoubleQuote(char *buf) {
+ssize_t lengthDoubleQuote(char *buf) {
 	if (buf[0] != '"')
 		return 0;
-	size_t l = 1;
+	ssize_t l = 1;
 	for (char c; c = buf[l], c != '"'; ++l) {
-		size_t temp = 0;
+		ssize_t temp = 0;
 		switch (c) {
 			case '\0':
 				temp = 0;
@@ -328,19 +330,19 @@ size_t lengthDoubleQuote(char *buf) {
 				temp = lengthRegInDouble(&buf[l]);
 				break;
 		}
-		if (temp == 0)
-			return 0;
+		if (temp < 1)
+			return temp - l;
 		l += temp - 1;
 	}
 	return l + 1;
 }
 
-size_t lengthRegInDouble(char *buf) {
-	size_t l = 0;
+ssize_t lengthRegInDouble(char *buf) {
+	ssize_t l = 0;
 	for (char c; c = buf[l], c != '"'; ++l) {
 		switch (c) {
 			case '\0':
-				return 0;
+				return -l;
 			case '\\':
 				++l;
 				break;
@@ -351,10 +353,10 @@ size_t lengthRegInDouble(char *buf) {
 	return l;
 }
 
-size_t lengthDollarExp(char *buf) {
+ssize_t lengthDollarExp(char *buf) {
 	if (buf[0] != '$')
 		return 0;
-	size_t l = 1;
+	ssize_t l = 1;
 	for (char c; c = buf[l], c != '\0'; ++l) {
 		switch (c) {
 			case '$':
@@ -365,7 +367,7 @@ size_t lengthDollarExp(char *buf) {
 					return l;
 				++l;
 				while (c = buf[l], c != ')') {
-					size_t temp = 1;
+					ssize_t temp = 1;
 					switch (c) {
 						case '\0':
 							temp = 0;
@@ -403,55 +405,98 @@ size_t lengthDollarExp(char *buf) {
 }
 
 int commandTokenize(Command *cmd, char *buf) {
-	cmd->c_type = CMD_REGULAR;
+	/*
+	 * end: current parse index - when finished it will point one char past the end of the command
+	 * argc: how many args this command has
+	 * done: indicates we've finished parsing this command (there may be more after it)
+	 * whitespace: whether or not the last character was whitespace
+	 */
+	size_t end = 0, argc = 0;
+	_Bool done = 0, whitespace = 1;
+	while (end <= cmd->c_len && !done) {
+		_Bool parse_run = 1;
+		switch (buf[end]) {
+			case ';': // End of this command
+				if (end == 0) {
+					cmd->c_len = end;
+					return -1;
+				}
+				++end;
+			case '\0':
+				if (end == 0)
+					return 0;
+				done = 1;
+				--end;
+			case ' ': // can't use delim_char...
+			case '\t':
+			case '\n':
+				if (whitespace == 0) {
+					++argc;
+					whitespace = 1;
+				}
+				parse_run = 0;
+				break;
+			default:
+				whitespace = 0;
+		}
+		if (parse_run) {
+			ssize_t len;
+			switch (buf[end]) {
+				case '\'':
+					len = lengthSingleQuote(&buf[end]);
+					break;
+				case '"':
+					len = lengthDoubleQuote(&buf[end]);
+					break;
+				case '$':
+					len = lengthDollarExp(&buf[end]);
+					break;
+				default:
+					len = lengthRegular(&buf[end]);
+			}
+			if (len < 1) {
+				cmd->c_len = end - len;
+				return -1;
+			}
+			end += len;
+		}
+		else
+			++end;
+	}
+	//fprintf(stderr, "Argc: %lu\n", argc);
+	cmd->c_argc = argc;
+	if (cmd->c_argc == 0) {
+		memmove(buf, &buf[end], cmd->c_len - end + 1);
+		return 0;
+	}
+	argc = 0;
 
-	// TODO scan whole string to get accurate arg count instead of winging it
-	cmd->c_argc = 1; // Get maximum number of possible tokens
-	for (size_t i = 0; i < cmd->c_len; i++)
-		if (buf[i] == ' ')
-			cmd->c_argc++;
-
-	cmd->c_argv = calloc(cmd->c_argc + 1, sizeof (CmdArg));
-	for (size_t i = 0; i < cmd->c_argc + 1; ++i)
+	// Allocate space for arguments
+	cmd->c_argv = calloc(cmd->c_argc, sizeof (CmdArg));
+	for (size_t i = 0; i < cmd->c_argc; ++i)
 		cmd->c_argv[i].type = ARG_NULL;
 
-	cmd->c_argc = 0;
-	int done = 0, semicolon = 0, inDoubleQuote = 0;
-	size_t current;
-	for (current = 0; current <= cmd->c_len && !done; current++) {
+	// Parse and set each argument structure
+	done = 0;
+	_Bool inDoubleQuote = 0, semicolon = 0;
+	for (size_t current = 0; argc < cmd->c_argc && current <= cmd->c_len && !done; current++) {
+		_Bool parse_regular = 0;
+		CmdArg *cur_arg = &cmd->c_argv[argc], new_arg = { .type = ARG_NULL };
 		switch (buf[current]) {
 			case '\'': {
-				if (inDoubleQuote)
-					goto stupid_single_quote_goto;
-				size_t quote_len = lengthSingleQuote(&buf[current]);
-				// TODO: HANDLE UNCLOSED QUOTE!
-				/*if (quote_len == 0) {
-					// do what?
-				}*/
-				CmdArg new_arg = { .type = ARG_BASIC_STRING, .str = strndup(&buf[current + 1], quote_len - 2) };
-				CmdArg *cur_arg = &cmd->c_argv[cmd->c_argc];
-				switch (cur_arg->type) {
-					case ARG_NULL:
-						*cur_arg = new_arg;
-						break;
-					case ARG_COMPLEX_STRING: {
-						size_t arr_len = 0;
-						while (cur_arg->sub[arr_len].type != ARG_NULL)
-							++arr_len;
-						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
-						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
-						cur_arg->sub[arr_len] = new_arg;
-						break;
-					}
-					default: {
-						CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
-						new_complex.sub[0] = *cur_arg;
-						new_complex.sub[1] = new_arg;
-						new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
-						*cur_arg = new_complex;
-					}
+				// Treat as normal character
+				if (inDoubleQuote) {
+					parse_regular = 1;
+					break;
 				}
 
+				ssize_t quote_len = lengthSingleQuote(&buf[current]);
+				if (quote_len < 1) {
+					fprintf(stderr, "lenSQuote returned %zd!\nParsed from %zu, with buffer contents: \e[1;31m<\e[0m%s\e[1;31m>\e[0m", quote_len, current, buf);
+					return 1;
+				}
+
+				new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[current + 1], quote_len - 2) };
 				current += quote_len - 1;
 				break;
 			}
@@ -460,7 +505,11 @@ int commandTokenize(Command *cmd, char *buf) {
 				break;
 			case '$': {
 				size_t dollar_len = lengthDollarExp(&buf[current]);
-				CmdArg new_arg;
+				if (dollar_len < 1) {
+					fprintf(stderr, "lenDExp returned %zd!\nParsed from %zu, with buffer contents: \e[1;31m<\e[0m%s\e[1;31m>\e[0m", dollar_len, current, buf);
+					return 1;
+				}
+
 				if (dollar_len == 1) {
 					new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
 				}
@@ -470,41 +519,18 @@ int commandTokenize(Command *cmd, char *buf) {
 					else
 						new_arg = (CmdArg){ .type = ARG_VARIABLE, .str = strndup(&buf[current + 1], dollar_len - 1) };
 				}
-				// TODO: HANDLE BAD DOLLAR EXP
-				CmdArg *cur_arg = &cmd->c_argv[cmd->c_argc];
-				switch (cur_arg->type) {
-					case ARG_NULL:
-						*cur_arg = new_arg;
-						break;
-					case ARG_COMPLEX_STRING: {
-						size_t arr_len = 0;
-						while (cur_arg->sub[arr_len].type != ARG_NULL)
-							++arr_len;
-						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
-						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
-						cur_arg->sub[arr_len] = new_arg;
-						break;
-					}
-					default: {
-						CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
-						new_complex.sub[0] = *cur_arg;
-						new_complex.sub[1] = new_arg;
-						new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
-						*cur_arg = new_complex;
-					}
-				}
-
 				current += dollar_len - 1;
 				break;
 			}
-			case '~':
-				if (!inDoubleQuote && cmd->c_argv[cmd->c_argc].type == ARG_NULL) {
-					cmd->c_argv[cmd->c_argc] = (CmdArg){ .type = ARG_VARIABLE, .str = strdup("HOME") };
-					break;
-				}
-				goto stupid_single_quote_goto;
+			case '~': // TODO: ARG_HOME, for an easy way to do ~username
+				if (!inDoubleQuote && cur_arg->type == ARG_NULL)
+					*cur_arg = (CmdArg){ .type = ARG_VARIABLE, .str = strdup("HOME") };
+				else
+					parse_regular = 1;
+				break;
 			case ';': // End of this command
 				if (current == 0) {
+					fprintf(stderr, "I don't think this will ever be executed... if you see this, please tell me.\n"); // TODO: remove this eventually
 					cmd->c_len = 0;
 					return -1;
 				}
@@ -515,57 +541,63 @@ int commandTokenize(Command *cmd, char *buf) {
 			case '\t':
 			case '\n':
 				if (!inDoubleQuote) {
-					if (cmd->c_argv[cmd->c_argc].type != ARG_NULL)
-						++cmd->c_argc;
+					if (cur_arg->type != ARG_NULL)
+						++argc;
 					break;
 				}
 				if (done) {
 					if (!semicolon)
 						break;
+					// Ignore semicolon if inside double quote
 					done = semicolon = 0;
 				}
-			default: {
-stupid_single_quote_goto:;
-				size_t reg_len = inDoubleQuote ? lengthRegInDouble(&buf[current]) : lengthRegular(&buf[current]);
-				CmdArg new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[current], reg_len) };
-				// TODO: HANDLE 0?
-				CmdArg *cur_arg = &cmd->c_argv[cmd->c_argc];
-				switch (cur_arg->type) {
-					case ARG_NULL:
-						*cur_arg = new_arg;
-						break;
-					case ARG_COMPLEX_STRING: {
-						size_t arr_len = 0;
-						while (cur_arg->sub[arr_len].type != ARG_NULL)
-							++arr_len;
-						cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
-						cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
-						cur_arg->sub[arr_len] = new_arg;
-						break;
-					}
-					default: {
-						CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
-						new_complex.sub[0] = *cur_arg;
-						new_complex.sub[1] = new_arg;
-						new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
-						*cur_arg = new_complex;
-					}
-				}
+			default:
+				parse_regular = 1;
+		}
+		if (parse_regular) {
+			size_t reg_len = inDoubleQuote ? lengthRegInDouble(&buf[current]) : lengthRegular(&buf[current]);
+			if (reg_len < 1) {
+				fprintf(stderr, "len%s returned %zd!\nParsed from %zu, with buffer contents: \e[1;31m<\e[0m%s\e[1;31m>\e[0m", inDoubleQuote ? "RnD" : "R", reg_len, current, buf);
+				return 1;
+			}
 
-				current += reg_len - 1;
-				break;
+			new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strndup(&buf[current], reg_len) };
+			current += reg_len - 1;
+		}
+		if (new_arg.type != ARG_NULL) {
+			switch (cur_arg->type) {
+				case ARG_NULL:
+					*cur_arg = new_arg;
+					break;
+				case ARG_COMPLEX_STRING: {
+					size_t arr_len = 0;
+					while (cur_arg->sub[arr_len].type != ARG_NULL)
+						++arr_len;
+					cur_arg->sub = reallocarray(cur_arg->sub, arr_len + 2, sizeof (CmdArg));
+					cur_arg->sub[arr_len + 1] = cur_arg->sub[arr_len];
+					cur_arg->sub[arr_len] = new_arg;
+					break;
+				}
+				default: {
+					CmdArg new_complex = { .type = ARG_COMPLEX_STRING, .sub = calloc(3, sizeof (CmdArg)) };
+					new_complex.sub[0] = *cur_arg;
+					new_complex.sub[1] = new_arg;
+					new_complex.sub[2] = (CmdArg){ .type = ARG_NULL };
+					*cur_arg = new_complex;
+				}
 			}
 		}
 	}
-	if (!semicolon)
-		--current;
-	memmove(buf, &buf[current], cmd->c_len - current + 1);
+
+	// Finish up with command, and initialize next if applicable
+	memmove(buf, &buf[end], cmd->c_len - end + 1); // Remove command from buffer
+	cmd->c_type = CMD_REGULAR;
 	if (semicolon) {
 		cmd->c_next = commandInit();
 		cmd->c_next->c_buf = cmd->c_buf;
 		cmd->c_next->c_size = cmd->c_size;
-		cmd->c_next->c_len = cmd->c_len - current;
-		cmd->c_len = current;
+		cmd->c_next->c_len = cmd->c_len - end;
+		cmd->c_len = end;
 	}
 
 	return 0;
