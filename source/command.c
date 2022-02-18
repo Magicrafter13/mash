@@ -21,6 +21,10 @@ Command *commandInit() {
 		.c_next = NULL,
 		.c_if_true = NULL,
 		.c_if_false = NULL,
+		.c_input_count = 0,
+		.c_output_count = 0,
+		.c_input_file = NULL,
+		.c_output_file = NULL
 	};
 	return new_command;
 }
@@ -147,6 +151,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 						if (cmd->c_next != NULL)
 							while_cmd->c_next = cmd->c_next;
 						commandFree(cmd);
+						free(cmd);
 						cmd = while_cmd;
 						while (cmd->c_next != NULL)
 							cmd = cmd->c_next;
@@ -186,15 +191,20 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 				}
 
 				// Check if command is then
-				if (cmd->c_argc == 0 || cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "then")) {
+				if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "then")) {
 					original->c_len = error_length;
 					return 1;
 				}
-				// Remove then argument
-				freeArg(cmd->c_argv[0]);
-				for (size_t i = 1; i < cmd->c_argc; ++i)
-					cmd->c_argv[i - 1] = cmd->c_argv[i];
-				--cmd->c_argc;
+				// If nothing came after "then", then change to a CMD_EMPTY, so it is skipped
+				if (cmd->c_argc == 1)
+					cmd->c_type = CMD_EMPTY;
+				// Otherwise, remove the "then" argument
+				else {
+					freeArg(cmd->c_argv[0]);
+					for (size_t i = 1; i < cmd->c_argc; ++i)
+						cmd->c_argv[i - 1] = cmd->c_argv[i];
+					--cmd->c_argc;
+				}
 
 				// Parse commands until one has 'fi' in it. (Also check for 'else' and switch to if_false.)
 				Command *last_true = NULL;
@@ -288,6 +298,8 @@ ssize_t lengthRegular(char *buf) {
 			case '\t':
 			case '\n':
 			case ';':
+			case '<':
+			case '>':
 				return l;
 			case '\\':
 				c = buf[++l];
@@ -408,11 +420,15 @@ int commandTokenize(Command *cmd, char *buf) {
 	/*
 	 * end: current parse index - when finished it will point one char past the end of the command
 	 * argc: how many args this command has
+	 * input_count: number of input files (<)
+	 * output_count: number of output files (>)
 	 * done: indicates we've finished parsing this command (there may be more after it)
 	 * whitespace: whether or not the last character was whitespace
+	 * need_file: whether we are waiting for a filename argument (for < or >)
+	 * semicolon: whether this command ended with a semicolon (versus \0)
 	 */
-	size_t end = 0, argc = 0;
-	_Bool done = 0, whitespace = 1;
+	size_t end = 0, argc = 0, input_count = 0, output_count = 0;
+	_Bool done = 0, whitespace = 1, need_file = 0, semicolon = 0;
 	while (end <= cmd->c_len && !done) {
 		_Bool parse_run = 1;
 		switch (buf[end]) {
@@ -421,8 +437,13 @@ int commandTokenize(Command *cmd, char *buf) {
 					cmd->c_len = end;
 					return -1;
 				}
+				semicolon = 1;
 				++end;
 			case '\0':
+				if (need_file) {
+					cmd->c_len = --end;
+					return -1;
+				}
 				if (end == 0)
 					return 0;
 				done = 1;
@@ -430,13 +451,52 @@ int commandTokenize(Command *cmd, char *buf) {
 			case ' ': // can't use delim_char...
 			case '\t':
 			case '\n':
-				if (whitespace == 0) {
-					++argc;
+				if (!whitespace) {
+					if (!need_file)
+						++argc;
 					whitespace = 1;
 				}
 				parse_run = 0;
 				break;
+			case '<':
+				++input_count;
+				--output_count;
+			case '>':
+				++output_count;
+
+				if (need_file) {
+					cmd->c_len = end;
+					return -1;
+				}
+
+				if (whitespace)
+					whitespace = 0;
+				else
+					++argc; // no whitespace between previous argument and < ?
+
+				switch (buf[end + 1]) {
+					case ';':
+					case '<':
+					case '>':
+						++end;
+					case '\n':
+					case '\0':
+						cmd->c_len = end;
+						return -1;
+					case ' ':
+					case '\t':
+						need_file = 1;
+						break;
+					default:
+						--argc;
+				}
+				parse_run = 0;
+				break;
 			default:
+				if (need_file) {
+					need_file = 0;
+					--argc;
+				}
 				whitespace = 0;
 		}
 		if (parse_run) {
@@ -472,18 +532,35 @@ int commandTokenize(Command *cmd, char *buf) {
 		return 0;
 	}
 	argc = 0;
+	cmd->c_input_count = input_count;
+	input_count = 0;
+	cmd->c_output_count = output_count;
+	output_count = 0;
 
 	// Allocate space for arguments
 	cmd->c_argv = calloc(cmd->c_argc, sizeof (CmdArg));
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		cmd->c_argv[i].type = ARG_NULL;
+	cmd->c_input_file = cmd->c_output_file = NULL;
+	if (cmd->c_input_count) {
+		cmd->c_input_file = calloc(cmd->c_input_count, sizeof (CmdArg));
+		for (size_t i = 0; i < cmd->c_input_count; ++i)
+			cmd->c_input_file[i].type = ARG_NULL;
+	}
+	if (cmd->c_output_count) {
+		cmd->c_output_file = calloc(cmd->c_output_count, sizeof (CmdArg));
+		for (size_t i = 0; i < cmd->c_output_count; ++i)
+			cmd->c_output_file[i].type = ARG_NULL;
+	}
 
 	// Parse and set each argument structure
-	done = 0;
-	_Bool inDoubleQuote = 0, semicolon = 0;
-	for (size_t current = 0; argc < cmd->c_argc && current <= cmd->c_len && !done; current++) {
+	need_file = 0;
+	_Bool inDoubleQuote = 0, need_input;
+	for (size_t current = 0; current < end; ++current) {
 		_Bool parse_regular = 0;
-		CmdArg *cur_arg = &cmd->c_argv[argc], new_arg = { .type = ARG_NULL };
+		CmdArg *cur_arg = need_file
+			? (need_input ? &cmd->c_input_file[input_count] : &cmd->c_output_file[output_count])
+			: &cmd->c_argv[argc], new_arg = { .type = ARG_NULL };
 		switch (buf[current]) {
 			case '\'': {
 				// Treat as normal character
@@ -530,28 +607,52 @@ int commandTokenize(Command *cmd, char *buf) {
 				else
 					parse_regular = 1;
 				break;
-			case ';': // End of this command
-				if (current == 0) {
-					fprintf(stderr, "I don't think this will ever be executed... if you see this, please tell me.\n"); // TODO: remove this eventually
-					cmd->c_len = 0;
-					return -1;
+			case '<':
+				if (!inDoubleQuote) {
+					if (cur_arg->type != ARG_NULL) {
+						if (need_file)
+							need_input ? ++input_count : ++output_count;
+						else
+							++argc;
+					}
+					need_file = 1;
+					need_input = 1;
+					continue;
 				}
-				semicolon = 1;
+				parse_regular = 1;
+				break;
+			case '>':
+				if (!inDoubleQuote) {
+					if (cur_arg->type != ARG_NULL) {
+						if (need_file)
+							need_input ? ++input_count : ++output_count;
+						else
+							++argc;
+					}
+					need_file = 1;
+					need_input = 0;
+					continue;
+				}
+				parse_regular = 1;
+				break;
+			case ';': // End of this command
+				if (inDoubleQuote)
+					parse_regular = 1;
 			case '\0':
-				done = 1;
+				break;
 			case ' ': // can't use delim_char...
 			case '\t':
 			case '\n':
 				if (!inDoubleQuote) {
-					if (cur_arg->type != ARG_NULL)
-						++argc;
+					if (cur_arg->type != ARG_NULL) {
+						if (need_file) {
+							need_input ? ++input_count : ++output_count;
+							need_file = 0;
+						}
+						else
+							++argc;
+					}
 					break;
-				}
-				if (done) {
-					if (!semicolon)
-						break;
-					// Ignore semicolon if inside double quote
-					done = semicolon = 0;
 				}
 			default:
 				parse_regular = 1;
@@ -638,16 +739,35 @@ void commandFree(Command *cmd) {
 			freeArg(cmd->c_argv[i]);
 		free(cmd->c_argv);
 		cmd->c_argv = NULL;
+		cmd->c_argc = 0;
 	}
 
-	if (cmd->c_next != NULL)
+	if (cmd->c_next != NULL) {
 		commandFree(cmd->c_next);
-	if (cmd->c_if_true != NULL)
+		free(cmd->c_next);
+		cmd->c_next = NULL;
+	}
+	if (cmd->c_if_true != NULL) {
 		commandFree(cmd->c_if_true);
-	if (cmd->c_if_false != NULL)
+		free(cmd->c_if_true);
+		cmd->c_if_true = NULL;
+	}
+	if (cmd->c_if_false != NULL) {
 		commandFree(cmd->c_if_false);
+		free(cmd->c_if_false);
+		cmd->c_if_false = NULL;
+	}
 
-	free(cmd);
+	if (cmd->c_input_file != NULL) {
+		for (size_t i = 0; i < cmd->c_input_count; ++i)
+			freeArg(cmd->c_input_file[i]);
+		free(cmd->c_input_file);
+	}
+	if (cmd->c_output_file != NULL) {
+		for (size_t i = 0; i < cmd->c_output_count; ++i)
+			freeArg(cmd->c_output_file[i]);
+		free(cmd->c_output_file);
+	}
 }
 
 void freeArg(CmdArg a) {

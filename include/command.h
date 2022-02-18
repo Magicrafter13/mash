@@ -39,6 +39,8 @@ struct _command {
 	Command *c_next;
 	Command *c_if_true;
 	Command *c_if_false;
+	size_t c_input_count, c_output_count;
+	CmdArg *c_input_file, *c_output_file;
 };
 
 Command *commandInit();

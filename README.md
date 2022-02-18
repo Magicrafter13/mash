@@ -13,6 +13,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Run single command with `-c command`
 - Subshells with `$(command)` - if inside double quotes, you will get the exact output contents (otherwise it is tokenized)
 - Aliases: `alias` and `unalias`
+- Redirection (`<` and `>`)
 
 # TODO
 
@@ -21,7 +22,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Removing environment variables
 - Handle arrow keys (nobody wants their arrow keys to print `^[[A`, they want them to do actions)
 - Pipes
-- Redirection (`<` and `>`)
+- Make redirection work with while loops and if statements
 - For loops
 
 ## Behind the Scenes
@@ -29,6 +30,8 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Create `$XDG\_CONFIG\_HOME/mash/config.mash`?
 
 ## Code Improvements
+
+- More comments
 
 # Misc
 An idea I had before finding out about `environ`(7):  
