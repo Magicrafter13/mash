@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L // mkstemp
 #include "mash.h"
+#include <errno.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +37,7 @@ FILE *open_config(struct passwd *PASSWD) {
 	strcat(config_path, "config.mash");
 	FILE *file = fopen(config_path, "r");
 	free(config_path);
-	if (file == NULL)
+	if (file == NULL && errno != ENOENT) // Ignore file not exist error
 		fprintf(stderr, "%m\n");
 	return file;
 }
