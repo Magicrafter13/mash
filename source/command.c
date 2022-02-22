@@ -3,6 +3,13 @@
 #include "compatibility.h"
 #include <string.h>
 
+size_t shiftArg(Command *cmd) {
+	freeArg(cmd->c_argv[0]);
+	for (size_t i = 1; i < cmd->c_argc; ++i)
+		cmd->c_argv[i - 1] = cmd->c_argv[i];
+	return --cmd->c_argc;
+}
+
 ssize_t lengthRegular(char*);
 ssize_t lengthSingleQuote(char*);
 ssize_t lengthDoubleQuote(char*);
@@ -71,125 +78,98 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 	if (cmd->c_argv[0].type == ARG_BASIC_STRING) {
 		if (!strcmp(cmd->c_argv[0].str, "while")) {
-			// Shift out "while" arg
-			freeArg(cmd->c_argv[0]);
-			for (size_t i = 1; i < cmd->c_argc; ++i)
-				cmd->c_argv[i - 1] = cmd->c_argv[i];
-			// Abort if no arguments remain
-			if (--cmd->c_argc == 0)
+			// Shift out "while" arg, abort if no arguments remain
+			if (shiftArg(cmd) == 0)
 				return 1; // TODO set error length thing
 
-			Command *const while_cmd = cmd;
+			// Save pointer to while command, and alloc new command for "do"
 			cmd->c_type = CMD_WHILE;
-			cmd->c_if_true = cmd->c_next;
-			cmd->c_next = NULL;
-
-			// Make sure we have another command following this
-			if (cmd->c_if_true == NULL) {
-				cmd->c_if_true = commandInit();
-				cmd->c_if_true->c_buf = cmd->c_buf;
-				cmd->c_if_true->c_size = cmd->c_size;
-			}
+			Command *const while_cmd = cmd;
+			cmd->c_if_true = commandInit();
 			cmd = cmd->c_if_true;
+			cmd->c_len = while_cmd->c_len;
+			cmd->c_size = while_cmd->c_size;
+			cmd->c_buf = while_cmd->c_buf;
 
+			// Get "do" TODO: bash allows you to enter multiple commands before do
 			const int parse_result = commandParse(cmd, istream, ostream);
 			if (parse_result == -1)
 				return -1;
 			if (parse_result) {
-				original->c_len = error_length + cmd->c_next->c_len;
+				original->c_len = error_length + cmd->c_len;
 				return 1;
 			}
-
 			// Check if command is do
 			if (cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "do")) {
 				original->c_len = error_length;
 				return 1;
 			}
-			// Remove do argument
-			freeArg(cmd->c_argv[0]);
-			for (size_t i = 1; i < cmd->c_argc; ++i)
-				cmd->c_argv[i - 1] = cmd->c_argv[i];
-			--cmd->c_argc;
+			shiftArg(cmd); // Remove do argument TODO should this do the same CMD_EMPTY thing that we do for if_cmd?
 
-			// Parse commands until one has 'done' in it.
-			for (int found_done = 0; !found_done;) {
-				if (cmd->c_next == NULL) {
-					cmd->c_next = commandInit();
-					cmd->c_next->c_buf = cmd->c_buf;
-					cmd->c_next->c_size = cmd->c_size;
-
-					const int parse_result = commandParse(cmd->c_next, istream, ostream);
-					if (parse_result == -1)
-						return -1;
-					if (parse_result) {
-						original->c_len = error_length + cmd->c_next->c_len;
-						return 1;
-					}
+			// Parse commands until user enters "done"
+			_Bool found_done = 0;
+			do {
+				// Read one command
+				Command *const previous = cmd;
+				cmd->c_next = commandInit();
+				cmd = cmd->c_next;
+				cmd->c_len = previous->c_len;
+				cmd->c_size = previous->c_size;
+				cmd->c_buf = previous->c_buf;
+				const int parse_result = commandParse(cmd, istream, ostream);
+				if (parse_result == -1)
+					return -1;
+				if (parse_result) {
+					original->c_len = error_length + cmd->c_len;
+					return 1;
 				}
-				while (cmd->c_next != NULL) {
-					Command *const previous = cmd;
-					cmd = cmd->c_next;
-					if (cmd->c_argc == 0)
-						continue;
 
-					// Ignore other argument types
-					if (cmd->c_argv[0].type != ARG_BASIC_STRING)
-						continue;
-					// Ignore if not 'done'
-					if (strcmp(cmd->c_argv[0].str, "done"))
-						continue;
-
-					// Error if anything came after 'done'
-					if (cmd->c_argc != 1) {
-						original->c_len = error_length + cmd->c_len;
-						cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
-						return 1;
-					}
-
-					// Point previous to while_cmd, and while_cmd to done's next
-					previous->c_next = while_cmd;
-					if (cmd->c_next != NULL)
-						while_cmd->c_next = cmd->c_next;
-					commandFree(cmd);
-					free(cmd);
-					cmd = while_cmd;
-					while (cmd->c_next != NULL)
-						cmd = cmd->c_next;
-					found_done = 1;
-					break;
+				// Check if command is "done"
+				if (cmd->c_argc == 0) // Ignore blank lines and comments
+					continue;
+				if (cmd->c_type != CMD_REGULAR) // Ignore irrelevant command types
+					continue;
+				if (cmd->c_argv[0].type != ARG_BASIC_STRING) // Ignore other argument types
+					continue;
+				if (strcmp(cmd->c_argv[0].str, "done")) // Ignore if not "done"
+					continue;
+				// Error if anything came after 'done'
+				if (cmd->c_argc != 1) {
+					original->c_len = error_length + cmd->c_len;
+					cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
+					return 1;
 				}
+
+				// Point last command to while, and free the done command
+				previous->c_next = while_cmd;
+				commandFree(cmd);
+				free(cmd);
+				found_done = 1;
 			}
+			while (!found_done);
 		}
 		else if (!strcmp(cmd->c_argv[0].str, "if")) {
-			// Shift out "if" arg
-			freeArg(cmd->c_argv[0]);
-			for (size_t i = 1; i < cmd->c_argc; ++i)
-				cmd->c_argv[i - 1] = cmd->c_argv[i];
-			// Abort if no arguments remain
-			if (--cmd->c_argc == 0)
+			// Shift out "if" arg, abort if no arguments remain
+			if (shiftArg(cmd) == 0)
 				return 1; // TODO set error length thing
 
-			Command *const if_cmd = cmd;
+			// Save pointer to if command, and alloc new command for "then"
 			cmd->c_type = CMD_IF;
-			cmd->c_if_true = cmd->c_next;
-			cmd->c_next = NULL;
-
-			// Make sure we have another command following this
-			if (cmd->c_if_true == NULL) {
-				cmd->c_if_true = commandInit();
-				cmd->c_if_true->c_buf = cmd->c_buf;
-				cmd->c_if_true->c_size = cmd->c_size;
-			}
+			Command *const if_cmd = cmd;
+			cmd->c_if_true = commandInit();
 			cmd = cmd->c_if_true;
+			cmd->c_len = if_cmd->c_len;
+			cmd->c_size = if_cmd->c_size;
+			cmd->c_buf = if_cmd->c_buf;
 
+			// Get "then" TODO: bash allows you to enter multiple commands before then
 			const int parse_result = commandParse(cmd, istream, ostream);
 			if (parse_result == -1)
 				return -1;
 			if (parse_result) {
-				original->c_len = error_length + cmd->c_next->c_len;
+				original->c_len = error_length + cmd->c_len;
 				return 1;
 			}
-
 			// Check if command is then
 			if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "then")) {
 				original->c_len = error_length;
@@ -199,86 +179,66 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 			if (cmd->c_argc == 1)
 				cmd->c_type = CMD_EMPTY;
 			// Otherwise, remove the "then" argument
-			else {
-				freeArg(cmd->c_argv[0]);
-				for (size_t i = 1; i < cmd->c_argc; ++i)
-					cmd->c_argv[i - 1] = cmd->c_argv[i];
-				--cmd->c_argc;
-			}
+			else
+				shiftArg(cmd);
 
-			// Parse commands until one has 'fi' in it. (Also check for 'else' and switch to if_false.)
-			Command *last_true = NULL;
-			for (int found_fi = 0; !found_fi;) {
-				if (cmd->c_next == NULL) {
-					cmd->c_next = commandInit();
-					cmd->c_next->c_buf = cmd->c_buf;
-					cmd->c_next->c_size = cmd->c_size;
-
-					const int parse_result = commandParse(cmd->c_next, istream, ostream);
-					if (parse_result == -1)
-						return -1;
-					if (parse_result) {
-						original->c_len = error_length + cmd->c_next->c_len;
-						return 1;
-					}
+			// Parse commands until one has "fi" in it. (Also check for "else" and switch to if_false.)
+			Command *last_true = NULL; // only used if "else" is encountered
+			_Bool found_fi = 0;
+			do {
+				// Read one command
+				Command *const previous = cmd;
+				cmd->c_next = commandInit();
+				cmd = cmd->c_next;
+				cmd->c_len = previous->c_len;
+				cmd->c_size = previous->c_size;
+				cmd->c_buf = previous->c_buf;
+				const int parse_result = commandParse(cmd, istream, ostream);
+				if (parse_result == -1)
+					return -1;
+				if (parse_result) {
+					original->c_len = error_length + cmd->c_len;
+					return 1;
 				}
-				while (cmd->c_next != NULL) {
-					Command *const previous = cmd;
-					cmd = cmd->c_next;
-					if (cmd->c_argc == 0)
-						continue;
 
-					// Ignore irrelevant command types
-					if (cmd->c_type != CMD_REGULAR)
-						continue;
-					// Ignore other argument types
-					if (cmd->c_argv[0].type != ARG_BASIC_STRING)
-						continue;
-					// Check for else
-					if (!strcmp(cmd->c_argv[0].str, "else")) {
-						// Check if we've already gotten an else
-						if (if_cmd->c_if_false != NULL) {
-							original->c_len = error_length;// + cmd->c_len;
-							cmd->c_buf[0] = 'e';
-							return 1;
-						}
-
-						// Save final statement in block, and point if_cmd to else
-						last_true = previous;
-						last_true->c_next = NULL;
-						if_cmd->c_if_false = cmd;
-
-						// Remove 'else' from command
-						freeArg(cmd->c_argv[0]);
-						for (size_t i = 1; i < cmd->c_argc; ++i)
-							cmd->c_argv[i - 1] = cmd->c_argv[i];
-						--cmd->c_argc;
-
-						continue;
-					}
-
-					// Ignore if not 'fi'
-					if (strcmp(cmd->c_argv[0].str, "fi"))
-						continue;
-
-					// Error if anything came after 'fi'
-					if (cmd->c_argc != 1) {
-						original->c_len = error_length;
-						cmd->c_buf[0] = cmd->c_argv[1].str[0];
+				// Check if command is done or else
+				if (cmd->c_argc == 0) // Ignore blank lines and comments
+					continue;
+				if (cmd->c_type != CMD_REGULAR) // Ignore irrelevant command types
+					continue;
+				if (cmd->c_argv[0].type != ARG_BASIC_STRING) // Ignore other argument types
+					continue;
+				if (!strcmp(cmd->c_argv[0].str, "else")) {
+					// Check if we've already gotten an else
+					if (if_cmd->c_if_false != NULL) {
+						original->c_len = error_length;// + cmd->c_len;
+						cmd->c_buf[0] = 'e'; // TODO parse error near `c' should actually print string, not just single char...
 						return 1;
 					}
 
-					// Point final statement in true block, and false block, to fi (which will become a CMD_EMPTY)
-					if (last_true != NULL)
-						last_true->c_next = cmd;
-					previous->c_next = cmd;
-					cmd->c_type = CMD_EMPTY;
-					while (cmd->c_next != NULL)
-						cmd = cmd->c_next;
-					found_fi = 1;
-					break;
+					// Save final statement in block, point if_cmd to else, and shift "else" out of command
+					last_true = previous;
+					last_true->c_next = NULL;
+					if_cmd->c_if_false = cmd;
+					shiftArg(cmd);
+					continue;
 				}
+				if (strcmp(cmd->c_argv[0].str, "fi")) // Ignore if not 'fi'
+					continue;
+				// Error if anything came after 'fi'
+				if (cmd->c_argc != 1) {
+					original->c_len = error_length;
+					cmd->c_buf[0] = cmd->c_argv[1].str[0];
+					return 1;
+				}
+
+				// Point last true and false command to NULL, and free the fi command
+				previous->c_next = NULL;
+				commandFree(cmd);
+				free(cmd);
+				found_fi = 1;
 			}
+			while (!found_fi);
 		}
 	}
 
@@ -718,9 +678,6 @@ CmdArg argdup(CmdArg a) {
 }
 
 void commandFree(Command *cmd) {
-	if (cmd == NULL || cmd->c_type == CMD_FREED)
-		return;
-
 	// Stop recursive calls to commandFree from causing a double free
 	cmd->c_type = CMD_FREED;
 
@@ -732,17 +689,17 @@ void commandFree(Command *cmd) {
 		cmd->c_argc = 0;
 	}
 
-	if (cmd->c_next != NULL) {
+	if (cmd->c_next != NULL && cmd->c_next->c_type != CMD_FREED) {
 		commandFree(cmd->c_next);
 		free(cmd->c_next);
 		cmd->c_next = NULL;
 	}
-	if (cmd->c_if_true != NULL) {
+	if (cmd->c_if_true != NULL && cmd->c_if_true->c_type != CMD_FREED) {
 		commandFree(cmd->c_if_true);
 		free(cmd->c_if_true);
 		cmd->c_if_true = NULL;
 	}
-	if (cmd->c_if_false != NULL) {
+	if (cmd->c_if_false != NULL && cmd->c_if_false->c_type != CMD_FREED) {
 		commandFree(cmd->c_if_false);
 		free(cmd->c_if_false);
 		cmd->c_if_false = NULL;
