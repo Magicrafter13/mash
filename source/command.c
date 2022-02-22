@@ -10,6 +10,33 @@ size_t shiftArg(Command *cmd) {
 	return --cmd->c_argc;
 }
 
+void freeCmdIO(CmdIO *io) {
+	if (io->in_arg != NULL) {
+		for (size_t i = 0; i < io->in_count; ++i)
+			freeArg(io->in_arg[i]);
+		free(io->in_arg);
+		io->in_arg = NULL;
+	}
+	if (io->in_file != NULL) {
+		fclose(io->in_file);
+		io->in_file = NULL;
+	}
+	io->in_count = 0;
+	if (io->out_arg != NULL) {
+		for (size_t i = 0; i < io->out_count; ++i)
+			freeArg(io->out_arg[i]);
+		free(io->out_arg);
+		io->out_arg = NULL;
+	}
+	if (io->out_file != NULL) {
+		for (size_t i = 0; i < io->out_count; ++i)
+			fclose(io->out_file[i]);
+		free(io->out_file);
+		io->out_file = NULL;
+	}
+	io->out_count = 0;
+}
+
 ssize_t lengthRegular(char*);
 ssize_t lengthSingleQuote(char*);
 ssize_t lengthDoubleQuote(char*);
@@ -29,10 +56,23 @@ Command *commandInit() {
 		.c_next = NULL,
 		.c_if_true = NULL,
 		.c_if_false = NULL,
-		.c_input_count = 0,
-		.c_output_count = 0,
-		.c_input_file = NULL,
-		.c_output_file = NULL
+		.c_parent = NULL,
+		.c_io = (CmdIO){
+			.in_count = 0,
+			.out_count = 0,
+			.in_arg = NULL,
+			.out_arg = NULL,
+			.in_file = NULL,
+			.out_file = NULL
+		},
+		.c_block_io = (CmdIO){
+			.in_count = 0,
+			.out_count = 0,
+			.in_arg = NULL,
+			.out_arg = NULL,
+			.in_file = NULL,
+			.out_file = NULL
+		}
 	};
 	return new_command;
 }
@@ -84,6 +124,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 			// Save pointer to while command, and alloc new command for "do"
 			cmd->c_type = CMD_WHILE;
+			cmd->c_parent = cmd;
 			Command *const while_cmd = cmd;
 			cmd->c_if_true = commandInit();
 			cmd = cmd->c_if_true;
@@ -105,6 +146,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 				return 1;
 			}
 			shiftArg(cmd); // Remove do argument TODO should this do the same CMD_EMPTY thing that we do for if_cmd?
+			cmd->c_parent = while_cmd; // Set parent command
 
 			// Parse commands until user enters "done"
 			_Bool found_done = 0;
@@ -112,6 +154,20 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 				// Read one command
 				Command *const previous = cmd;
 				cmd->c_next = commandInit();
+				if (cmd->c_type == CMD_IF) { // Update last true/false command to point to new cmd
+					Command *tmp_ptr = cmd->c_if_true;
+					if (tmp_ptr != NULL) {
+						while (tmp_ptr->c_next != NULL)
+							tmp_ptr = tmp_ptr->c_next;
+						tmp_ptr->c_next = cmd->c_next;
+					}
+					tmp_ptr = cmd->c_if_false;
+					if (tmp_ptr != NULL) {
+						while (tmp_ptr->c_next != NULL)
+							tmp_ptr = tmp_ptr->c_next;
+						tmp_ptr->c_next = cmd->c_next;
+					}
+				}
 				cmd = cmd->c_next;
 				cmd->c_len = previous->c_len;
 				cmd->c_size = previous->c_size;
@@ -123,6 +179,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 					original->c_len = error_length + cmd->c_len;
 					return 1;
 				}
+				cmd->c_parent = while_cmd;
 
 				// Check if command is "done"
 				if (cmd->c_argc == 0) // Ignore blank lines and comments
@@ -140,8 +197,10 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 					return 1;
 				}
 
-				// Point last command to while, and free the done command
+				// Point last command to while, set while's block_io, and free the done command
 				previous->c_next = while_cmd;
+				while_cmd->c_block_io = cmd->c_io;
+				cmd->c_io = (CmdIO){};
 				commandFree(cmd);
 				free(cmd);
 				found_done = 1;
@@ -155,6 +214,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 			// Save pointer to if command, and alloc new command for "then"
 			cmd->c_type = CMD_IF;
+			cmd->c_parent = cmd;
 			Command *const if_cmd = cmd;
 			cmd->c_if_true = commandInit();
 			cmd = cmd->c_if_true;
@@ -181,6 +241,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 			// Otherwise, remove the "then" argument
 			else
 				shiftArg(cmd);
+			cmd->c_parent = if_cmd; // Set parent command
 
 			// Parse commands until one has "fi" in it. (Also check for "else" and switch to if_false.)
 			Command *last_true = NULL; // only used if "else" is encountered
@@ -189,6 +250,20 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 				// Read one command
 				Command *const previous = cmd;
 				cmd->c_next = commandInit();
+				if (cmd->c_type == CMD_IF) { // Update last true/false command to point to new cmd
+					Command *tmp_ptr = cmd->c_if_true;
+					if (tmp_ptr != NULL) {
+						while (tmp_ptr->c_next != NULL)
+							tmp_ptr = tmp_ptr->c_next;
+						tmp_ptr->c_next = cmd->c_next;
+					}
+					tmp_ptr = cmd->c_if_false;
+					if (tmp_ptr != NULL) {
+						while (tmp_ptr->c_next != NULL)
+							tmp_ptr = tmp_ptr->c_next;
+						tmp_ptr->c_next = cmd->c_next;
+					}
+				}
 				cmd = cmd->c_next;
 				cmd->c_len = previous->c_len;
 				cmd->c_size = previous->c_size;
@@ -200,6 +275,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 					original->c_len = error_length + cmd->c_len;
 					return 1;
 				}
+				cmd->c_parent = if_cmd;
 
 				// Check if command is done or else
 				if (cmd->c_argc == 0) // Ignore blank lines and comments
@@ -232,8 +308,10 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 					return 1;
 				}
 
-				// Point last true and false command to NULL, and free the fi command
+				// Point last true and false command to NULL, set if's block_io, and free the fi command
 				previous->c_next = NULL;
+				if_cmd->c_block_io = cmd->c_io;
+				cmd->c_io = (CmdIO){};
 				commandFree(cmd);
 				free(cmd);
 				found_fi = 1;
@@ -488,25 +566,23 @@ int commandTokenize(Command *cmd, char *buf) {
 		return 0;
 	}
 	argc = 0;
-	cmd->c_input_count = input_count;
+	cmd->c_io = (CmdIO){ .in_count = input_count, .out_count = output_count };
 	input_count = 0;
-	cmd->c_output_count = output_count;
 	output_count = 0;
 
 	// Allocate space for arguments
 	cmd->c_argv = calloc(cmd->c_argc, sizeof (CmdArg));
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		cmd->c_argv[i].type = ARG_NULL;
-	cmd->c_input_file = cmd->c_output_file = NULL;
-	if (cmd->c_input_count) {
-		cmd->c_input_file = calloc(cmd->c_input_count, sizeof (CmdArg));
-		for (size_t i = 0; i < cmd->c_input_count; ++i)
-			cmd->c_input_file[i].type = ARG_NULL;
+	if (cmd->c_io.in_count) {
+		cmd->c_io.in_arg = calloc(cmd->c_io.in_count, sizeof (CmdArg));
+		for (size_t i = 0; i < cmd->c_io.in_count; ++i)
+			cmd->c_io.in_arg[i].type = ARG_NULL;
 	}
-	if (cmd->c_output_count) {
-		cmd->c_output_file = calloc(cmd->c_output_count, sizeof (CmdArg));
-		for (size_t i = 0; i < cmd->c_output_count; ++i)
-			cmd->c_output_file[i].type = ARG_NULL;
+	if (cmd->c_io.out_count) {
+		cmd->c_io.out_arg = calloc(cmd->c_io.out_count, sizeof (CmdArg));
+		for (size_t i = 0; i < cmd->c_io.out_count; ++i)
+			cmd->c_io.out_arg[i].type = ARG_NULL;
 	}
 
 	// Parse and set each argument structure
@@ -515,7 +591,7 @@ int commandTokenize(Command *cmd, char *buf) {
 	for (size_t current = 0; current < end; ++current) {
 		_Bool parse_regular = 0;
 		CmdArg *cur_arg = need_file
-			? (need_input ? &cmd->c_input_file[input_count] : &cmd->c_output_file[output_count])
+			? (need_input ? &cmd->c_io.in_arg[input_count] : &cmd->c_io.out_arg[output_count])
 			: &cmd->c_argv[argc], new_arg = { .type = ARG_NULL };
 		switch (buf[current]) {
 			case '\'': {
@@ -565,7 +641,7 @@ int commandTokenize(Command *cmd, char *buf) {
 				break;
 			case '<':
 				if (!inDoubleQuote) {
-					if (cur_arg->type != ARG_NULL) {
+					if ((argc < cmd->c_argc || need_file) && cur_arg->type != ARG_NULL) {
 						if (need_file)
 							need_input ? ++input_count : ++output_count;
 						else
@@ -579,7 +655,7 @@ int commandTokenize(Command *cmd, char *buf) {
 				break;
 			case '>':
 				if (!inDoubleQuote) {
-					if (cur_arg->type != ARG_NULL) {
+					if ((argc < cmd->c_argc || need_file) && cur_arg->type != ARG_NULL) {
 						if (need_file)
 							need_input ? ++input_count : ++output_count;
 						else
@@ -689,10 +765,9 @@ void commandFree(Command *cmd) {
 		cmd->c_argc = 0;
 	}
 
-	if (cmd->c_next != NULL && cmd->c_next->c_type != CMD_FREED) {
+	if (cmd->c_next != NULL && (cmd->c_parent == NULL || cmd->c_parent->c_next != cmd->c_next) && cmd->c_next->c_type != CMD_FREED) {
 		commandFree(cmd->c_next);
 		free(cmd->c_next);
-		cmd->c_next = NULL;
 	}
 	if (cmd->c_if_true != NULL && cmd->c_if_true->c_type != CMD_FREED) {
 		commandFree(cmd->c_if_true);
@@ -705,16 +780,10 @@ void commandFree(Command *cmd) {
 		cmd->c_if_false = NULL;
 	}
 
-	if (cmd->c_input_file != NULL) {
-		for (size_t i = 0; i < cmd->c_input_count; ++i)
-			freeArg(cmd->c_input_file[i]);
-		free(cmd->c_input_file);
-	}
-	if (cmd->c_output_file != NULL) {
-		for (size_t i = 0; i < cmd->c_output_count; ++i)
-			freeArg(cmd->c_output_file[i]);
-		free(cmd->c_output_file);
-	}
+	cmd->c_next = cmd->c_parent = NULL;
+
+	freeCmdIO(&cmd->c_io);
+	freeCmdIO(&cmd->c_block_io);
 }
 
 void freeArg(CmdArg a) {

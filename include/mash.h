@@ -7,12 +7,19 @@
 #define _VMINOR 0
 #define TMP_RW_BUFSIZE 4096
 
+char *expandArgument(CmdArg, int, char**);
+
 /*
  * Mash file utilities
  */
 
 FILE *open_config(struct passwd*);
 FILE *open_history(struct passwd*);
+FILE *openInputFiles(CmdIO, int, char**);
+FILE **openOutputFiles(CmdIO, int, char**);
+void closeIOFiles(CmdIO*);
+FILE *getParentInputFile(Command*);
+FILE *getParentOutputFile(Command*);
 
 /*
  * Input data

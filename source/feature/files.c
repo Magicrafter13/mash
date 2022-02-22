@@ -109,3 +109,121 @@ int mktmpfile(_Bool hidden, char **path) {
 		*path = template;
 	return sub_stdout;
 }
+
+FILE *openInputFiles(CmdIO io, int argc, char **argv) {
+	// File we will return (which will contain the concatenated contents of all requested files)
+	FILE *filein = tmpfile();
+	_Bool error = 0;
+	for (size_t i = 0; i < io.in_count; ++i) {
+		// Get filename (path)
+		char *ipath = expandArgument(io.in_arg[i], argc, argv);
+		if (ipath == NULL) {
+			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
+			error = 1;
+			break;
+		}
+
+		// Open file
+		FILE *ifile = fopen(ipath, "r");
+		if (ifile == NULL) {
+			fprintf(stderr, "%s: %m: %s\n", argv[0], ipath);
+			free(ipath);
+			error = 1;
+			break;
+		}
+		free(ipath);
+
+		// Copy contents to temporary file
+		char buffer[TMP_RW_BUFSIZE];
+		size_t bytes_read;
+		while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, ifile), bytes_read != 0)
+			fwrite(buffer, sizeof (char), bytes_read, filein);
+		fclose(ifile);
+	}
+	rewind(filein);
+	if (error) {
+		fclose(filein);
+		filein = NULL;
+	}
+
+	return filein;
+}
+
+FILE **openOutputFiles(CmdIO io, int argc, char **argv) {
+	FILE **fileout = calloc(io.out_count + 1, sizeof (FILE*));
+	_Bool error = 0;
+	// Open output files if applicable
+	size_t i;
+	for (i = 0; i < io.out_count; ++i) {
+		// Get filename (path)
+		char *opath = expandArgument(io.out_arg[i], argc, argv);
+		if (opath == NULL) {
+			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
+			error = 1;
+			break;
+		}
+
+		// Open file
+		FILE *ofile = fopen(opath, "w");
+		if (ofile == NULL) {
+			fprintf(stderr, "%s: %m: %s\n", argv[0], opath);
+			free(opath);
+			error = 1;
+			break;
+		}
+		free(opath);
+
+		// Add to array
+		fileout[i] = ofile;
+	}
+	if (error) {
+		for (size_t j = 0; j < i; ++j)
+			fclose(fileout[j]);
+		free(fileout);
+		fileout = NULL;
+	}
+	else
+		fileout[i] = tmpfile();
+
+	return fileout;
+}
+
+void closeIOFiles(CmdIO *io) {
+	if (io->in_file != NULL) {
+		fclose(io->in_file);
+		io->in_file = NULL;
+	}
+	if (io->out_file != NULL) {
+		rewind(io->out_file[io->out_count]);
+		char buffer[TMP_RW_BUFSIZE];
+		size_t bytes_read;
+		while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, io->out_file[io->out_count]), bytes_read > 0)
+			for (size_t i = 0; i < io->out_count; ++i)
+				fwrite(buffer, sizeof (char), bytes_read, io->out_file[i]);
+		for (size_t i = 0; i <= io->out_count; ++i)
+			fclose(io->out_file[i]);
+
+		free(io->out_file);
+		io->out_file = NULL;
+	}
+}
+
+FILE *getParentInputFile(Command *cmd) {
+	cmd = cmd->c_parent;
+	while (cmd != cmd->c_parent) {
+		if (cmd->c_block_io.in_file != NULL)
+			break;
+		cmd = cmd->c_parent;
+	}
+	return cmd->c_block_io.in_file;
+}
+
+FILE *getParentOutputFile(Command *cmd) {
+	cmd = cmd->c_parent;
+	while (cmd != cmd->c_parent) {
+		if (cmd->c_block_io.out_file != NULL)
+			break;
+		cmd = cmd->c_parent;
+	}
+	return cmd->c_block_io.out_count > 0 ? cmd->c_block_io.out_file[cmd->c_block_io.out_count] : NULL;
+}

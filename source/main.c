@@ -170,12 +170,19 @@ int main(int argc, char *argv[]) {
 		}
 		// Otherwise, we should advance to the next command
 		else {
+			Command *previous = cmd;
+			closeIOFiles(&cmd->c_io);
 			switch (cmd->c_type) {
 				case CMD_FREED:
 					fprintf(stderr, "CMD_FREED encountered!\n");
 					break;
 				case CMD_WHILE:
-					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_next;
+					if (!cmd_exit)
+						cmd = cmd->c_if_true;
+					else {
+						closeIOFiles(&cmd->c_block_io);
+						cmd = cmd->c_next;
+					}
 					cmd_exit = 0;
 					break;
 				case CMD_IF:
@@ -187,6 +194,8 @@ int main(int argc, char *argv[]) {
 				default:
 					cmd = cmd->c_next;
 			}
+			if (previous->c_parent != NULL && previous->c_parent->c_type == CMD_IF && (cmd == NULL || cmd->c_parent != previous->c_parent))
+				closeIOFiles(&previous->c_block_io);
 			// If command is now NULL, we need to jump back to the top so we can free memory
 			if (cmd == NULL)
 				continue;
@@ -316,13 +325,68 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		// Set (or create) input and output files
+		// While and if may have io files that haven't been opened yet
+		if (cmd->c_type == CMD_WHILE || cmd->c_type == CMD_IF) {
+			if (cmd->c_parent != cmd) {
+				// TODO free our block_io if we have it, and set it to our parent's
+			}
+			else {
+				if (cmd->c_block_io.in_count > 0 && cmd->c_block_io.in_file == NULL) {
+					cmd->c_block_io.in_file = openInputFiles(cmd->c_block_io, argc, argv);
+					if (cmd->c_block_io.in_file == NULL) {
+						for (size_t v = 0; v < cmd->c_argc; ++v)
+							free(e_argv[v]);
+						cmd_exit = 1;
+						continue;
+					}
+				}
+				if (cmd->c_block_io.out_count > 0 && cmd->c_block_io.out_file == NULL) {
+					cmd->c_block_io.out_file = openOutputFiles(cmd->c_block_io, argc, argv);
+					if (cmd->c_block_io.out_file == NULL) {
+						for (size_t v = 0; v < cmd->c_argc; ++v)
+							free(e_argv[v]);
+						cmd_exit = 1;
+						continue;
+					}
+				}
+			}
+		}
+		FILE *filein = NULL, *fileout = NULL;
+		// Get this command's files if applicable, otherwise parent's (or none)
+		if (cmd->c_io.in_count > 0) {
+			cmd->c_io.in_file = openInputFiles(cmd->c_io, argc, argv);
+			if (filein == NULL) {
+				for (size_t v = 0; v < cmd->c_argc; ++v)
+					free(e_argv[v]);
+				cmd_exit = 1;
+				continue;
+			}
+			filein = cmd->c_io.in_file;
+		}
+		else if (cmd->c_parent != NULL)
+			filein = getParentInputFile(cmd);
+		if (cmd->c_io.out_count > 0) {
+			cmd->c_io.out_file = openOutputFiles(cmd->c_io, argc, argv);
+			if (cmd->c_io.out_file== NULL) {
+				for (size_t v = 0; v < cmd->c_argc; ++v)
+					free(e_argv[v]);
+				cmd_exit = 1;
+				continue;
+			}
+			fileout = cmd->c_io.out_file[cmd->c_io.out_count];
+		}
+		else if (cmd->c_parent != NULL && cmd->c_parent->c_block_io.out_count > 0)
+			fileout = getParentOutputFile(cmd);
+
 		// Check for read
 		if (!strcmp(e_argv[0], "read")) {
 			char *value = NULL;
 			size_t size = 0;
-			size_t bytes_read = getline(&value, &size, stdin);
+			size_t bytes_read = getline(&value, &size, filein == NULL ? stdin : filein);
 			if (bytes_read == -1) {
-				clearerr(stdin);
+				if (filein == NULL)
+					clearerr(stdin);
 				cmd_exit = 1;
 			}
 			else {
@@ -341,129 +405,46 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
-		FILE *fileout[cmd->c_output_count + 1];
-		_Bool output_error = 0;
-		// Open output files if applicable
-		if (cmd->c_output_count > 0) {
-			size_t i;
-			for (i = 0; i < cmd->c_output_count; ++i) {
-				// Get filename (path)
-				char *opath = expandArgument(cmd->c_output_file[i], argc, argv);
-				if (opath == NULL) {
-					fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
-					output_error = 1;
-					break;
-				}
-
-				// Open file
-				FILE *ofile = fopen(opath, "w");
-				if (ofile == NULL) {
-					fprintf(stderr, "%s: %m: %s\n", argv[0], opath);
-					free(opath);
-					output_error = 1;
-					break;
-				}
-				free(opath);
-
-				// Add to array
-				fileout[i] = ofile;
-			}
-			if (output_error) {
-				for (size_t j = 0; j < i; ++j)
-					fclose(fileout[j]);
-				for (size_t i = 0; i < cmd->c_argc; ++i)
-					free(e_argv[i]);
-				cmd_exit = 1;
-				continue;
-			}
-			fileout[i] = tmpfile();
-		}
-
 		// Execute regular command
 		cmd_pid = fork();
 		// Forked process will execute the command
 		if (cmd_pid == 0) {
-			// If input was redirected, read files now
-			FILE *filein = NULL;
-			_Bool input_error = 0;
-			if (cmd->c_input_count > 0) {
-				filein = tmpfile(); for (size_t i = 0; i < cmd->c_input_count; ++i) {
-					// Get filename (path)
-					char *ipath = expandArgument(cmd->c_input_file[i], argc, argv);
-					if (ipath == NULL) {
-						fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
-						input_error = 1;
-						break;
-					}
+			// Change stdin and stdout if user redirected them
+			if (filein != NULL)
+				dup2(fileno(filein), STDIN_FILENO);
+			if (fileout != NULL)
+				dup2(fileno(fileout), STDOUT_FILENO);
+			// Change stdout if user redirected output
+			if (fileout != NULL)
+				dup2(fileno(fileout), STDOUT_FILENO);
 
-					// Open file
-					FILE *ifile = fopen(ipath, "r");
-					if (ifile == NULL) {
-						fprintf(stderr, "%s: %m: %s\n", argv[0], ipath);
-						free(ipath);
-						input_error = 1;
-						break;
-					}
-					free(ipath);
+			// TODO consider manual search of the path
+			execvp(e_argv[0], e_argv);
+			fprintf(stderr, "%s: %s: %m\n", argv[0], e_argv[0]);
 
-					// Copy contents to temporary file
-					char buffer[TMP_RW_BUFSIZE];
-					size_t bytes_read;
-					while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, ifile), bytes_read != 0)
-						fwrite(buffer, sizeof (char), bytes_read, filein);
-					fclose(ifile);
-				}
-				rewind(filein);
-				if (input_error)
-					fclose(filein);
-			}
+			/*
+			// Close redirected input
+			if (filein != NULL && (cmd->c_parent != NULL ? cmd->c_parent->c_block_io.in_file != filein : 1))
+				fclose(filein);
 
-			int err = 1;
-			if (!input_error) {
-				// Change stdin if user redirected input
-				if (filein != NULL)
-					dup2(fileno(filein), STDIN_FILENO);
-				// Change stdout if user redirected output
-				if (cmd->c_output_count > 0)
-					dup2(fileno(fileout[cmd->c_output_count]), STDOUT_FILENO);
-
-				// TODO consider manual search of the path
-				execvp(e_argv[0], e_argv);
-				err = errno;
-				fprintf(stderr, "%m\n");
-
-				// Close redirected input
-				if (filein != NULL)
-					fclose(filein);
-			}
-
-			if (cmd->c_output_count > 0) {
-				for (size_t i = 0; i <= cmd->c_output_count; ++i)
+			if (cmd->c_io.out_count > 0) {
+				for (size_t i = 0; i <= cmd->c_io.out_count; ++i)
 					fclose(fileout[i]);
 			}
+			*/
 
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
 			for (size_t i = 0; i < cmd->c_argc; ++i)
 				free(e_argv[i]);
 			history_pool = NULL;
 
-			cmd_exit = err;
+			cmd_exit = 1;
 			break;
 		}
 
 		// While the main process waits for the child to exit
 		waitpid(cmd_pid, &cmd_stat, 0);
 		cmd_exit = WEXITSTATUS(cmd_stat);
-		if (cmd->c_output_count > 0) {
-			rewind(fileout[cmd->c_output_count]);
-			char buffer[TMP_RW_BUFSIZE];
-			size_t bytes_read;
-			while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, fileout[cmd->c_output_count]), bytes_read > 0)
-				for (size_t i = 0; i < cmd->c_output_count; ++i)
-					fwrite(buffer, sizeof (char), bytes_read, fileout[i]);
-			for (size_t i = 0; i <= cmd->c_output_count; ++i)
-				fclose(fileout[i]);
-		}
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			free(e_argv[i]);
 	}

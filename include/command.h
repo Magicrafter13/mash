@@ -21,6 +21,13 @@ struct _arg {
 	};
 };
 
+typedef struct _cmd_io CmdIO;
+struct _cmd_io {
+	size_t in_count, out_count;
+	CmdArg *in_arg, *out_arg;
+	FILE *in_file, **out_file;
+};
+
 enum _cmd_type {
 	CMD_FREED,   // Type to ignore in commandFree - useful for loops where child commands will point back to the loop they are in
 	CMD_EMPTY,   // Command to ignore (comments, blank lines, etc)
@@ -39,8 +46,9 @@ struct _command {
 	Command *c_next;
 	Command *c_if_true;
 	Command *c_if_false;
-	size_t c_input_count, c_output_count;
-	CmdArg *c_input_file, *c_output_file;
+	CmdIO c_io;
+	Command *c_parent;
+	CmdIO c_block_io;
 };
 
 Command *commandInit();
