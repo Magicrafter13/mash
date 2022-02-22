@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
 			cmd = last_cmd;
 
 			// Present prompt and read command
-			if (interactive && source->input == stdin) {
+			if (interactive && source->input == stdin && (last_cmd->c_size > 0 ? last_cmd->c_buf[0] == '\0' : 1)) {
 				fprintf(stderr, "$ ");
 				fflush(stderr);
 			}
