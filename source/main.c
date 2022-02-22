@@ -46,21 +46,29 @@ int main(int argc, char *argv[]) {
 	if (login)
 		fprintf(stderr, "This mash is a login shell.\n");
 
-	int interactive = argc == 1 && isatty(fileno(stdin)), sourcing = 0, subshell = 0;
+	int interactive = argc == 1 && isatty(fileno(stdin)), subshell = 0;
 	if (interactive)
 		fprintf(stderr, "This mash is interactive.\n");
+
+	// Create shell environment
+	Source *source = sourceInit();
+	sourceSet(source, stdin, argc, argv);
 
 	// Initialize
 	const uid_t UID = getuid();
 	struct passwd *PASSWD = getpwuid(UID);
 	char *subshell_cmd;
-	FILE *input_source = NULL, *history_pool = NULL;
+	FILE *history_pool = NULL;
 	srandom(time(NULL));
 
 	if (interactive) { // Source config
-		input_source = open_config(PASSWD);
-		if (input_source != NULL)
-			sourcing = 1;
+		history_pool = tmpfile();
+		if (history_pool == NULL)
+			fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+		source->output = history_pool;
+		FILE *config = open_config(PASSWD);
+		if (config != NULL)
+			source = sourceAdd(source, config, argc, argv);
 	}
 	else {
 		if (argc > 1) {
@@ -70,6 +78,7 @@ int main(int argc, char *argv[]) {
 				if (argv[1][1] == '-') {
 					if (!strcmp(&argv[1][2], "version")) {
 						fprintf(stdout, "mash %u.%u\nCompiled " __DATE__ " " __TIME__ "\n", _VMAJOR, _VMINOR);
+						sourceFree(source);
 						return 0;
 					}
 				}
@@ -90,23 +99,20 @@ int main(int argc, char *argv[]) {
 			}
 			else {
 				// (Presumed) file name
-				input_source = fopen(argv[1], "r");
-				if (input_source == NULL) {
+				FILE *script = fopen(argv[1], "r");
+				if (script == NULL) {
 					int err = errno;
 					fprintf(stderr, "%m\n");
+					sourceFree(source);
 					return err;
 				}
+				sourceSet(source, script, argc - 1, &argv[1]);
 			}
 		}
 	}
 
 	// Further initialization after successful setup and argument parsing
 	Command *cmd = NULL, *last_cmd = commandInit(); // TODO make a struct for a command - can have an array of command history to call back on!
-	if (interactive) {
-		history_pool = tmpfile();
-		if (history_pool == NULL)
-			fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
-	}
 	SufTree builtins = suftreeInit(BUILTIN[0], 0);
 	for (size_t b = 1; b < BUILTIN_COUNT; b++)
 		suftreeAdd(&builtins, BUILTIN[b], b);
@@ -117,7 +123,7 @@ int main(int argc, char *argv[]) {
 	if (subshell) {
 		last_cmd->c_len = strlen(subshell_cmd);
 		last_cmd->c_buf = subshell_cmd;
-		input_source = NULL;
+		sourceSet(source, NULL, 1, argv);
 	}
 
 	// User prompt (main loop)
@@ -127,15 +133,13 @@ int main(int argc, char *argv[]) {
 			commandFree(last_cmd);
 			cmd = last_cmd;
 
-			if (input_source == NULL)
-				if (interactive)
-					input_source = stdin;
 			// Present prompt and read command
-			if (interactive && !sourcing)
+			if (interactive && source->input == stdin) {
 				fprintf(stderr, "$ ");
-			fflush(stderr);
+				fflush(stderr);
+			}
 
-			int parse_result = commandParse(cmd, input_source, sourcing ? NULL : history_pool);
+			int parse_result = commandParse(cmd, source->input, source->output);
 			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (subshell)
@@ -147,16 +151,12 @@ int main(int argc, char *argv[]) {
 					break;
 				}
 				// EOF
-				if (sourcing) {
-					sourcing = 0;
+				if (source->input != stdin && source->prev != NULL) { // Sourcing a file
 					cmd = NULL;
-					fclose(input_source);
-					input_source = NULL;
+					source = sourceClose(source);
 					continue;
 				}
-				if (!interactive)
-					fclose(input_source);
-				else
+				if (interactive)
 					fprintf(stderr, "\n");
 				break;
 			}
@@ -206,16 +206,14 @@ int main(int argc, char *argv[]) {
 		_Bool expanded = 1;
 		char *e_argv[cmd->c_argc + 1];
 		for (size_t i = 0; i < cmd->c_argc; ++i) {
-			char *full_arg = expandArgument(cmd->c_argv[i], (sourcing || !interactive) ? argc - 1 : argc, (sourcing || !interactive) ? &argv[1] : argv);
+			char *full_arg = expandArgument(cmd->c_argv[i], source->argc, source->argv);
 			if (full_arg == NULL) {
 				for (size_t e = 0; e < i; ++e)
 					free(e_argv[e]);
 				expanded = 0;
 				// If we are a child that returned from the fork in expandArgument
-				if (cmd_pid == 0 && history_pool != NULL) {
-					fclose(history_pool);
+				if (cmd_pid == 0)
 					history_pool = NULL;
-				}
 				break;
 			}
 			e_argv[i] = full_arg;
@@ -285,9 +283,10 @@ int main(int argc, char *argv[]) {
 			for (size_t v = 0; v < cmd->c_argc; ++v)
 				free(e_argv[v]);
 
-			if (!sourcing)
+			if (source->input == stdin)
 				break;
-			fseek(input_source, 0, SEEK_END);
+			else
+				fseek(source->input, 0, SEEK_END);
 			continue;
 		}
 
@@ -303,11 +302,11 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
-		// Check for dot TODO if . is inside file being sourced, bad things will happen? Need to make input_source a linked list...
+		// Check for dot (source file)
 		if (!strcmp(e_argv[0], ".")) {
-			input_source = fopen(e_argv[1], "r");
-			if (input_source != NULL)
-				sourcing = 1;
+			FILE *script = fopen(e_argv[1], "r");
+			if (script != NULL)
+				source = sourceAdd(source, script, cmd->c_argc - 1, &e_argv[1]);
 			else {
 				fprintf(stderr, "%m\n");
 				cmd_exit = 1;
@@ -446,8 +445,6 @@ int main(int argc, char *argv[]) {
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
 			for (size_t i = 0; i < cmd->c_argc; ++i)
 				free(e_argv[i]);
-			if (history_pool != NULL)
-				fclose(history_pool);
 			history_pool = NULL;
 
 			cmd_exit = err;
@@ -478,9 +475,6 @@ int main(int argc, char *argv[]) {
 
 	aliasFree(aliases);
 
-	if (sourcing)
-		fclose(input_source);
-
 	suftreeFree(builtins.sf_gt);
 	suftreeFree(builtins.sf_eq);
 	suftreeFree(builtins.sf_lt);
@@ -496,8 +490,10 @@ int main(int argc, char *argv[]) {
 				fwrite(buffer, sizeof (char), bytes_read, history);
 			fclose(history);
 		}
-		fclose(history_pool);
 	}
+
+	sourceFree(source); // This will close history_pool
+
 	/*if (cmd_pid == 0)
 		_Exit(cmd_exit);*/
 	return cmd_exit;
@@ -538,9 +534,9 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 			if (sub_stdout == -1)
 				return NULL;
 
-			pid_t cmd_pid = fork();
+			pid_t sub_pid = fork();
 			// Run subshell
-			if (cmd_pid == 0) {
+			if (sub_pid == 0) {
 				dup2(sub_stdout, STDOUT_FILENO);
 				char *argv[4] = {
 					"mash",
@@ -550,6 +546,8 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 				};
 				int err = main(3, argv);
 
+				cmd_pid = 0;
+
 				close(sub_stdout);
 				free(filepath);
 
@@ -557,7 +555,7 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 				return NULL;
 			}
 			// Wait for subshell to finish,
-			waitpid(cmd_pid, &cmd_stat, 0);
+			waitpid(sub_pid, &cmd_stat, 0);
 			cmd_exit = WEXITSTATUS(cmd_stat);
 
 			// Allocate memory for the file

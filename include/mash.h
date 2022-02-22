@@ -6,12 +6,32 @@
 #define _VMAJOR 1
 #define _VMINOR 0
 #define TMP_RW_BUFSIZE 4096
+
 /*
  * Mash file utilities
  */
 
 FILE *open_config(struct passwd*);
 FILE *open_history(struct passwd*);
+
+/*
+ * Input data
+ */
+
+typedef struct _cmd_source Source;
+struct _cmd_source {
+	FILE *input;
+	FILE *output;
+	size_t argc;
+	char **argv;
+	Source *prev, *next;
+};
+
+Source *sourceInit();
+void sourceSet(Source*, FILE*restrict, size_t, char**);
+Source *sourceAdd(Source*, FILE*restrict, size_t, char**);
+Source *sourceClose(Source*);
+void sourceFree(Source*);
 
 /*
  * Built-ins
