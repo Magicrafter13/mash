@@ -1,5 +1,6 @@
-#define _POSIX_C_SOURCE 200809L // fileno, strdup, setenv
+#define _POSIX_C_SOURCE 200809L // fileno, strdup
 #define _DEFAULT_SOURCE // srandom
+#define _GNU_SOURCE // strchrnul
 #include "mash.h"
 #include "suftree.h"
 #include <errno.h>
@@ -14,19 +15,14 @@
 #include <time.h>
 #include <unistd.h>
 
-char *expandArgument(CmdArg, int, char**);
-int mktmpfile(_Bool, char**);
-
-#define BUILTIN_COUNT 3
+#define BUILTIN_COUNT 2
 
 char *const BUILTIN[BUILTIN_COUNT] = {
-	"export",
 	"help",
 	"cd"
 };
 
 uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
-	export,
 	help,
 	cd
 };
@@ -118,6 +114,7 @@ int main(int argc, char *argv[]) {
 		suftreeAdd(&builtins, BUILTIN[b], b);
 	size_t cmd_builtin;
 	AliasMap *aliases = aliasInit();
+	Variables *vars = variableInit();
 
 	// If this is a subshell, we need to setup last_cmd in a special way
 	if (subshell) {
@@ -135,7 +132,7 @@ int main(int argc, char *argv[]) {
 
 			// Present prompt and read command
 			if (interactive && source->input == stdin && (last_cmd->c_size > 0 ? last_cmd->c_buf[0] == '\0' : 1)) {
-				fprintf(stderr, "$ ");
+				fprintf(stderr, "%c ", UID == 0 ? '#' : '$');
 				fflush(stderr);
 			}
 
@@ -194,8 +191,13 @@ int main(int argc, char *argv[]) {
 				default:
 					cmd = cmd->c_next;
 			}
-			if (previous->c_parent != NULL && previous->c_parent->c_type == CMD_IF && (cmd == NULL || cmd->c_parent != previous->c_parent))
+			// TODO this is ugly, I hate it, and it has a bug
+			if ((previous->c_type == CMD_IF && previous->c_next == cmd)) // Last command was if, and it failed
 				closeIOFiles(&previous->c_block_io);
+			else {
+				if (previous->c_parent != NULL && previous->c_parent->c_type == CMD_IF && previous->c_parent->c_next == cmd)
+					closeIOFiles(&previous->c_block_io);
+			}
 			// If command is now NULL, we need to jump back to the top so we can free memory
 			if (cmd == NULL)
 				continue;
@@ -205,17 +207,55 @@ int main(int argc, char *argv[]) {
 		 * Execute command
 		 */
 
-		// Empty/blank command
-		if (cmd->c_type == CMD_EMPTY || cmd->c_argc == 0) // TODO: do we need to check argc...?
-			continue;
+		// Empty/blank command, or skippable command (then, else, do)
+		switch (cmd->c_type) {
+			case CMD_EMPTY:
+			case CMD_DO:
+			case CMD_DONE:
+			case CMD_THEN:
+			case CMD_ELSE:
+			case CMD_FI:
+				continue;
+			default:
+				if (cmd->c_argc == 0) // TODO: do we need to check argc...?
+					continue;
+		}
 
 		// Attempt to parse aliases
 		aliasResolve(aliases, cmd);
+
+		// Check if user is setting shell variable
+		if (cmd->c_argv[0].type == ARG_BASIC_STRING) {
+			size_t len = strlen(cmd->c_argv[0].str);
+			if (cmd->c_argv[0].str[len - 1] == '=' &&
+					len - varNameLength(cmd->c_argv[0].str) == 1) {
+				cmd->c_argv[0].str[len - 1] = '\0';
+				char *full_arg = "";
+				if (cmd->c_argv[1].type != ARG_NULL) {
+					full_arg = expandArgument(cmd->c_argv[1], source->argc, source->argv, vars);
+					if (full_arg == NULL) {
+						if (cmd_pid == 0)
+							history_pool = NULL;
+						break;
+					}
+				}
+
+				int ret = setvar(vars, cmd->c_argv[0].str, full_arg, 0);
+				if (ret == -1) {
+					fprintf(stderr, "%s: %m\n", argv[0]);
+					cmd_exit = 1;
+				}
+				if (cmd->c_argv[1].type != ARG_NULL)
+					free(full_arg);
+				continue;
+			}
+		}
+
 		// Expand command into string array
 		_Bool expanded = 1;
 		char *e_argv[cmd->c_argc + 1];
 		for (size_t i = 0; i < cmd->c_argc; ++i) {
-			char *full_arg = expandArgument(cmd->c_argv[i], source->argc, source->argv);
+			char *full_arg = expandArgument(cmd->c_argv[i], source->argc, source->argv, vars);
 			if (full_arg == NULL) {
 				for (size_t e = 0; e < i; ++e)
 					free(e_argv[e]);
@@ -257,7 +297,10 @@ int main(int argc, char *argv[]) {
 						cmd_exit = 1;
 					else {
 						e_argv[1][equals] = '\0';
-						aliasAdd(aliases, e_argv[1], &e_argv[1][equals + 1]);
+						if (aliasAdd(aliases, e_argv[1], &e_argv[1][equals + 1]) == NULL) {
+							fprintf(stderr, "%s: alias: error parsing string\n", argv[0]);
+							cmd_exit = 1;
+						}
 					}
 				}
 			}
@@ -311,6 +354,41 @@ int main(int argc, char *argv[]) {
 			continue;
 		}
 
+		// Export variable
+		if (!strcmp(e_argv[0], "export")) {
+			if (cmd->c_argc > 1) {
+				char *equal_addr = strchrnul(e_argv[1], '='), *value = NULL;
+				if (equal_addr[0] == '=') {
+					equal_addr[0] = '\0';
+					value = &equal_addr[1];
+				}
+				if (setvar(vars, e_argv[1], value, 1) == -1) {
+					fprintf(stderr, "%s: export: %m\n", argv[0]);
+					cmd_exit = 1;
+				}
+			}
+			else
+				cmd_exit = 1;
+
+			for (size_t v = 0; v < cmd->c_argc; ++v)
+				free(e_argv[v]);
+			continue;
+		}
+
+
+		// Check for unset
+		if (!strcmp(e_argv[0], "unset")) {
+			for (size_t i = 1; e_argv[i] != NULL; ++i) {
+				if (unsetvar(vars, e_argv[i]) == -1) {
+					fprintf(stderr, "%s: unset: %m\n", argv[0]);
+					cmd_exit = 1;
+				}
+			}
+			for (size_t v = 0; v < cmd->c_argc; ++v)
+				free(e_argv[v]);
+			continue;
+		}
+
 		// Check for dot (source file)
 		if (!strcmp(e_argv[0], ".")) {
 			FILE *script = fopen(e_argv[1], "r");
@@ -328,35 +406,30 @@ int main(int argc, char *argv[]) {
 		// Set (or create) input and output files
 		// While and if may have io files that haven't been opened yet
 		if (cmd->c_type == CMD_WHILE || cmd->c_type == CMD_IF) {
-			if (cmd->c_parent != cmd) {
-				// TODO free our block_io if we have it, and set it to our parent's
-			}
-			else {
-				if (cmd->c_block_io.in_count > 0 && cmd->c_block_io.in_file == NULL) {
-					cmd->c_block_io.in_file = openInputFiles(cmd->c_block_io, argc, argv);
-					if (cmd->c_block_io.in_file == NULL) {
-						for (size_t v = 0; v < cmd->c_argc; ++v)
-							free(e_argv[v]);
-						cmd_exit = 1;
-						continue;
-					}
+			if (cmd->c_block_io.in_count > 0 && cmd->c_block_io.in_file == NULL) {
+				cmd->c_block_io.in_file = openInputFiles(cmd->c_block_io, argc, argv, vars);
+				if (cmd->c_block_io.in_file == NULL) {
+					for (size_t v = 0; v < cmd->c_argc; ++v)
+						free(e_argv[v]);
+					cmd_exit = 1;
+					continue;
 				}
-				if (cmd->c_block_io.out_count > 0 && cmd->c_block_io.out_file == NULL) {
-					cmd->c_block_io.out_file = openOutputFiles(cmd->c_block_io, argc, argv);
-					if (cmd->c_block_io.out_file == NULL) {
-						for (size_t v = 0; v < cmd->c_argc; ++v)
-							free(e_argv[v]);
-						cmd_exit = 1;
-						continue;
-					}
+			}
+			if (cmd->c_block_io.out_count > 0 && cmd->c_block_io.out_file == NULL) {
+				cmd->c_block_io.out_file = openOutputFiles(cmd->c_block_io, argc, argv, vars);
+				if (cmd->c_block_io.out_file == NULL) {
+					for (size_t v = 0; v < cmd->c_argc; ++v)
+						free(e_argv[v]);
+					cmd_exit = 1;
+					continue;
 				}
 			}
 		}
 		FILE *filein = NULL, *fileout = NULL;
 		// Get this command's files if applicable, otherwise parent's (or none)
 		if (cmd->c_io.in_count > 0) {
-			cmd->c_io.in_file = openInputFiles(cmd->c_io, argc, argv);
-			if (filein == NULL) {
+			cmd->c_io.in_file = openInputFiles(cmd->c_io, argc, argv, vars);
+			if (cmd->c_io.in_file == NULL) {
 				for (size_t v = 0; v < cmd->c_argc; ++v)
 					free(e_argv[v]);
 				cmd_exit = 1;
@@ -367,8 +440,8 @@ int main(int argc, char *argv[]) {
 		else if (cmd->c_parent != NULL)
 			filein = getParentInputFile(cmd);
 		if (cmd->c_io.out_count > 0) {
-			cmd->c_io.out_file = openOutputFiles(cmd->c_io, argc, argv);
-			if (cmd->c_io.out_file== NULL) {
+			cmd->c_io.out_file = openOutputFiles(cmd->c_io, argc, argv, vars);
+			if (cmd->c_io.out_file == NULL) {
 				for (size_t v = 0; v < cmd->c_argc; ++v)
 					free(e_argv[v]);
 				cmd_exit = 1;
@@ -393,7 +466,7 @@ int main(int argc, char *argv[]) {
 				if (value[bytes_read - 1] == '\n')
 					value[bytes_read - 1] = '\0';
 				if (e_argv[1] != NULL) {
-					if (setenv(e_argv[1], value, 1) == -1) {
+					if (setvar(vars, e_argv[1], value, 0) == -1) {
 						cmd_exit = errno;
 						fprintf(stderr, "%m\n");
 					}
@@ -422,17 +495,6 @@ int main(int argc, char *argv[]) {
 			execvp(e_argv[0], e_argv);
 			fprintf(stderr, "%s: %s: %m\n", argv[0], e_argv[0]);
 
-			/*
-			// Close redirected input
-			if (filein != NULL && (cmd->c_parent != NULL ? cmd->c_parent->c_block_io.in_file != filein : 1))
-				fclose(filein);
-
-			if (cmd->c_io.out_count > 0) {
-				for (size_t i = 0; i <= cmd->c_io.out_count; ++i)
-					fclose(fileout[i]);
-			}
-			*/
-
 			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
 			for (size_t i = 0; i < cmd->c_argc; ++i)
 				free(e_argv[i]);
@@ -454,6 +516,7 @@ int main(int argc, char *argv[]) {
 	commandFree(last_cmd);
 	free(last_cmd);
 
+	variableFree(vars);
 	aliasFree(aliases);
 
 	suftreeFree(builtins.sf_gt);
@@ -480,9 +543,10 @@ int main(int argc, char *argv[]) {
 	return cmd_exit;
 }
 
-char *expandArgument(CmdArg arg, int argc, char **argv) {
+char *expandArgument(CmdArg arg, int argc, char **argv, Variables *vars) {
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
+		case ARG_QUOTED_STRING:
 			return strdup(arg.str);
 		case ARG_VARIABLE:
 			if (arg.str[0] >= '0' && arg.str[0] <= '9') {
@@ -506,7 +570,7 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 				return strdup(number);
 			}
 
-			char *value = getenv(arg.str);
+			char *value = getvar(vars, arg.str);
 			return strdup(value == NULL ? "" : value);
 		case ARG_SUBSHELL:
 		case ARG_QUOTED_SUBSHELL: {
@@ -585,7 +649,7 @@ char *expandArgument(CmdArg arg, int argc, char **argv) {
 				++sub_count;
 			char *sub_argv[sub_count];
 			for (size_t i = 0; i < sub_count; ++i) {
-				char *e = expandArgument(arg.sub[i], argc, argv);
+				char *e = expandArgument(arg.sub[i], argc, argv, vars);
 				if (e == NULL) {
 					for (size_t f = 0; f < i; ++f)
 						free(sub_argv[f]);

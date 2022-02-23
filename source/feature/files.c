@@ -110,13 +110,13 @@ int mktmpfile(_Bool hidden, char **path) {
 	return sub_stdout;
 }
 
-FILE *openInputFiles(CmdIO io, int argc, char **argv) {
+FILE *openInputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
 	// File we will return (which will contain the concatenated contents of all requested files)
 	FILE *filein = tmpfile();
 	_Bool error = 0;
 	for (size_t i = 0; i < io.in_count; ++i) {
 		// Get filename (path)
-		char *ipath = expandArgument(io.in_arg[i], argc, argv);
+		char *ipath = expandArgument(io.in_arg[i], argc, argv, vars);
 		if (ipath == NULL) {
 			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
 			error = 1;
@@ -149,14 +149,14 @@ FILE *openInputFiles(CmdIO io, int argc, char **argv) {
 	return filein;
 }
 
-FILE **openOutputFiles(CmdIO io, int argc, char **argv) {
+FILE **openOutputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
 	FILE **fileout = calloc(io.out_count + 1, sizeof (FILE*));
 	_Bool error = 0;
 	// Open output files if applicable
 	size_t i;
 	for (i = 0; i < io.out_count; ++i) {
 		// Get filename (path)
-		char *opath = expandArgument(io.out_arg[i], argc, argv);
+		char *opath = expandArgument(io.out_arg[i], argc, argv, vars);
 		if (opath == NULL) {
 			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
 			error = 1;
@@ -209,7 +209,7 @@ void closeIOFiles(CmdIO *io) {
 }
 
 FILE *getParentInputFile(Command *cmd) {
-	cmd = cmd->c_parent;
+	//cmd = cmd->c_parent;
 	while (cmd != cmd->c_parent) {
 		if (cmd->c_block_io.in_file != NULL)
 			break;
@@ -219,7 +219,7 @@ FILE *getParentInputFile(Command *cmd) {
 }
 
 FILE *getParentOutputFile(Command *cmd) {
-	cmd = cmd->c_parent;
+	//cmd = cmd->c_parent;
 	while (cmd != cmd->c_parent) {
 		if (cmd->c_block_io.out_file != NULL)
 			break;

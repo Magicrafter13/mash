@@ -6,6 +6,7 @@
 enum _arg_type {
 	ARG_NULL,
 	ARG_BASIC_STRING,
+	ARG_QUOTED_STRING,
 	ARG_VARIABLE,
 	ARG_SUBSHELL,
 	ARG_QUOTED_SUBSHELL,
@@ -32,8 +33,8 @@ enum _cmd_type {
 	CMD_FREED,   // Type to ignore in commandFree - useful for loops where child commands will point back to the loop they are in
 	CMD_EMPTY,   // Command to ignore (comments, blank lines, etc)
 	CMD_REGULAR,
-	CMD_WHILE,
-	CMD_IF
+	CMD_WHILE, CMD_DO, CMD_DONE,
+	CMD_IF, CMD_THEN, CMD_ELSE, CMD_FI,
 };
 
 typedef struct _command Command;
@@ -46,8 +47,8 @@ struct _command {
 	Command *c_next;
 	Command *c_if_true;
 	Command *c_if_false;
-	CmdIO c_io;
 	Command *c_parent;
+	CmdIO c_io;
 	CmdIO c_block_io;
 };
 
