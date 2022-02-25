@@ -8,26 +8,27 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Run scripts (can be used as a shebang)
 - Version info `--version`
 - Change directory with `cd`
-- Environment variables with `$varname` - set with `export`
+- Environment variables with `$varname` - set with `export` (also regular shell variables)
 - Flow control: `if`, and `while`
 - Run single command with `-c command`
 - Subshells with `$(command)` - if inside double quotes, you will get the exact output contents (otherwise it is tokenized)
 - Aliases: `alias` and `unalias`
 - Redirection (`<` and `>`)
+- Removing environment variables with `unset`
+- Set prompt with `$PS1`, supports bash prompt expansion tokens.
 
 # TODO
 
 ## Command Parser
 
-- Removing environment variables
 - Handle arrow keys (nobody wants their arrow keys to print `^[[A`, they want them to do actions)
 - Pipes
-- Make redirection work with while loops and if statements
 - For loops
 
 ## Behind the Scenes
 
 - Create `$XDG\_CONFIG\_HOME/mash/config.mash`?
+- Move history file to `$XDG_STATE_HOME`.
 
 ## Code Improvements
 

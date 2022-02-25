@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200112L
 #include "mash.h"
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,6 +94,8 @@ uint8_t cd(size_t argc, void **ptr) {
 		fprintf(stderr, "%m\n");
 		return err;
 	}
+	char newpath[PATH_MAX];
+	setenv("PWD", getcwd(newpath, PATH_MAX), 1);
 
 	return 0;
 }

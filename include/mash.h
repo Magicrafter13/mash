@@ -2,6 +2,7 @@
 #include "hashTable.h"
 #include <pwd.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #define _VMAJOR 1
 #define _VMINOR 0
@@ -93,3 +94,9 @@ int setvar(Variables*, char*, char*, _Bool);
 char *getvar(Variables*, char*);
 int unsetvar(Variables*, char*);
 size_t varNameLength(char*);
+
+/*
+ * Prompt utilities
+ */
+
+void printPrompt(Variables*, Source*, struct passwd*, uid_t);

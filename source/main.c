@@ -5,6 +5,7 @@
 #include "suftree.h"
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,10 +132,8 @@ int main(int argc, char *argv[]) {
 			cmd = last_cmd;
 
 			// Present prompt and read command
-			if (interactive && source->input == stdin && (last_cmd->c_size > 0 ? last_cmd->c_buf[0] == '\0' : 1)) {
-				fprintf(stderr, "%c ", UID == 0 ? '#' : '$');
-				fflush(stderr);
-			}
+			if (interactive && source->input == stdin && (last_cmd->c_size > 0 ? last_cmd->c_buf[0] == '\0' : 1))
+				printPrompt(vars, source, PASSWD, UID);
 
 			int parse_result = commandParse(cmd, source->input, source->output);
 			last_cmd = cmd;
