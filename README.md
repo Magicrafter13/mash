@@ -15,7 +15,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Aliases: `alias` and `unalias`
 - Redirection (`<` and `>`)
 - Removing environment variables with `unset`
-- Set prompt with `$PS1`, supports bash prompt expansion tokens.
+- Set prompt with `$PS1`, supports bash prompt expansion tokens. Also supports `$PROMPT_COMMAND` which if set, will always execute before displaying your prompt (for fancier things like powerline).
 
 # TODO
 

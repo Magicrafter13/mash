@@ -1,5 +1,9 @@
+#ifndef MASH_H
+#define MASH_H
+
 #include "command.h"
 #include "hashTable.h"
+#include "suftree.h"
 #include <pwd.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -36,7 +40,17 @@ struct _shell_var {
 	hashTable *map;
 };
 
-char *expandArgument(CmdArg, int, char**, Variables*);
+/*
+ * Entry Point!
+ */
+int main(int, char*[]);
+
+/*
+ * Command execution
+ */
+
+int commandExecute(Command*, AliasMap*, Source**, Variables*, FILE**, uint8_t*, SufTree*);
+char *expandArgument(CmdArg, Source*, Variables*, uint8_t*);
 
 /*
  * Mash file utilities
@@ -45,8 +59,8 @@ char *expandArgument(CmdArg, int, char**, Variables*);
 FILE *open_config(struct passwd*);
 FILE *open_history(struct passwd*);
 int mktmpfile(_Bool, char**);
-FILE *openInputFiles(CmdIO, int, char**, Variables*);
-FILE **openOutputFiles(CmdIO, int, char**, Variables*);
+FILE *openInputFiles(CmdIO, Source*, Variables*, uint8_t*);
+FILE **openOutputFiles(CmdIO, Source*, Variables*, uint8_t*);
 void closeIOFiles(CmdIO*);
 FILE *getParentInputFile(Command*);
 FILE *getParentOutputFile(Command*);
@@ -68,6 +82,12 @@ void sourceFree(Source*);
 uint8_t export(size_t, void**);
 uint8_t help(size_t, void**);
 uint8_t cd(size_t, void**);
+
+#define BUILTIN_COUNT 2
+
+extern char *const BUILTIN[BUILTIN_COUNT];
+
+extern uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**);
 
 /*
  * Aliases
@@ -100,3 +120,5 @@ size_t varNameLength(char*);
  */
 
 void printPrompt(Variables*, Source*, struct passwd*, uid_t);
+
+#endif

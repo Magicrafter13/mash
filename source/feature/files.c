@@ -110,15 +110,15 @@ int mktmpfile(_Bool hidden, char **path) {
 	return sub_stdout;
 }
 
-FILE *openInputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
+FILE *openInputFiles(CmdIO io, Source *source, Variables *vars, uint8_t *cmd_exit) {
 	// File we will return (which will contain the concatenated contents of all requested files)
 	FILE *filein = tmpfile();
 	_Bool error = 0;
 	for (size_t i = 0; i < io.in_count; ++i) {
 		// Get filename (path)
-		char *ipath = expandArgument(io.in_arg[i], argc, argv, vars);
+		char *ipath = expandArgument(io.in_arg[i], source, vars, cmd_exit);
 		if (ipath == NULL) {
-			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
+			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
 			error = 1;
 			break;
 		}
@@ -126,7 +126,7 @@ FILE *openInputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
 		// Open file
 		FILE *ifile = fopen(ipath, "r");
 		if (ifile == NULL) {
-			fprintf(stderr, "%s: %m: %s\n", argv[0], ipath);
+			fprintf(stderr, "%s: %m: %s\n", source->argv[0], ipath);
 			free(ipath);
 			error = 1;
 			break;
@@ -149,16 +149,16 @@ FILE *openInputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
 	return filein;
 }
 
-FILE **openOutputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
+FILE **openOutputFiles(CmdIO io, Source *source, Variables *vars, uint8_t *cmd_exit) {
 	FILE **fileout = calloc(io.out_count + 1, sizeof (FILE*));
 	_Bool error = 0;
 	// Open output files if applicable
 	size_t i;
 	for (i = 0; i < io.out_count; ++i) {
 		// Get filename (path)
-		char *opath = expandArgument(io.out_arg[i], argc, argv, vars);
+		char *opath = expandArgument(io.out_arg[i], source, vars, cmd_exit);
 		if (opath == NULL) {
-			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", argv[0]);
+			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
 			error = 1;
 			break;
 		}
@@ -166,7 +166,7 @@ FILE **openOutputFiles(CmdIO io, int argc, char **argv, Variables *vars) {
 		// Open file
 		FILE *ofile = fopen(opath, "w");
 		if (ofile == NULL) {
-			fprintf(stderr, "%s: %m: %s\n", argv[0], opath);
+			fprintf(stderr, "%s: %m: %s\n", source->argv[0], opath);
 			free(opath);
 			error = 1;
 			break;

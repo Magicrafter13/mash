@@ -7,6 +7,16 @@
 #include <string.h>
 #include <unistd.h>
 
+char *const BUILTIN[BUILTIN_COUNT] = {
+	"help",
+	"cd"
+};
+
+uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**) = {
+	help,
+	cd
+};
+
 uint8_t export(size_t argc, void **ptr) {
 	char **argv = (char**)ptr;
 
