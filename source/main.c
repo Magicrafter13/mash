@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
 		if (history_pool == NULL)
 			fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
 		source->output = history_pool;
-		FILE *config = open_config(PASSWD);
+		FILE *config = open_config(PASSWD, argv[0]);
 		if (config != NULL)
 			source = sourceAdd(source, config, argc, argv);
 	}
@@ -224,7 +224,6 @@ int main(int argc, char *argv[]) {
 	commandFree(last_cmd);
 	free(last_cmd);
 
-	variableFree(vars);
 	aliasFree(aliases);
 
 	suftreeFree(builtins.sf_gt);
@@ -233,7 +232,7 @@ int main(int argc, char *argv[]) {
 
 	// Update history file
 	if (interactive && history_pool != NULL) {
-		FILE *history = open_history(PASSWD);
+		FILE *history = open_history(PASSWD, argv[0], vars);
 		if (history != NULL) {
 			rewind(history_pool);
 			char buffer[TMP_RW_BUFSIZE];
@@ -244,6 +243,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	variableFree(vars);
 	sourceFree(source); // This will close history_pool
 
 	return cmd_exit;

@@ -351,7 +351,7 @@ char *expandArgument(CmdArg arg, Source *source, Variables *vars, uint8_t *cmd_e
 		case ARG_SUBSHELL:
 		case ARG_QUOTED_SUBSHELL: {
 			char *filepath;
-			int sub_stdout = mktmpfile(0, &filepath); // Create temporary file, which we will redirect the output to.
+			int sub_stdout = mktmpfile(0, &filepath, vars); // Create temporary file, which we will redirect the output to.
 			if (sub_stdout == -1)
 				return NULL;
 

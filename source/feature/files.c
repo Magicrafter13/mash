@@ -5,9 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+//#include <sys/stat.h>
 #include <unistd.h>
 
-FILE *open_config(struct passwd *PASSWD) {
+FILE *open_config(struct passwd *PASSWD, char *arg0) {
 	char *config_path;
 
 	// Get user's config dir
@@ -38,24 +39,24 @@ FILE *open_config(struct passwd *PASSWD) {
 	FILE *file = fopen(config_path, "r");
 	free(config_path);
 	if (file == NULL && errno != ENOENT) // Ignore file not exist error
-		fprintf(stderr, "%m\n");
+		fprintf(stderr, "%s: %m\n", arg0);
 	return file;
 }
 
-FILE *open_history(struct passwd *PASSWD) {
+FILE *open_history(struct passwd *PASSWD, char *arg0, Variables *vars) {
 	char *history_path;
 
 	// Try HISTFILE variable
-	char *env_histfile = getenv("HISTFILE");
+	char *env_histfile = getvar(vars, "HISTFILE");
 	if (env_histfile == NULL) {
-		char *env_xdg = getenv("XDG_CONFIG_HOME");
+		char *env_xdg = getvar(vars, "XDG_STATE_HOME");
 		if (env_xdg == NULL) {
-			char *env_home = getenv("HOME");
+			char *env_home = getvar(vars, "HOME");
 			if (env_home == NULL)
 				env_home = PASSWD->pw_dir;
-			history_path = calloc(strlen(env_home) + 22, sizeof (char));
+			history_path = calloc(strlen(env_home) + 27, sizeof (char));
 			strcpy(history_path, env_home);
-			strcat(history_path, "/.config");
+			strcat(history_path, "/.local/state");
 		}
 		else {
 			history_path = calloc(strlen(env_xdg) + 14, sizeof (char));
@@ -65,9 +66,17 @@ FILE *open_history(struct passwd *PASSWD) {
 		strcat(history_path, "/mash/");
 
 		// Check if directory can be read
-		if (access(history_path, R_OK) != 0) {
-			free(history_path);
-			return NULL;
+		if (access(history_path, R_OK) == -1) { // TODO: possibly make use of NAME_MAX for arrays
+			/*_Bool failure = 1;
+			if (errno == ENOENT)
+				if (fprintf(stderr, "what\n"), mkdir(history_path, 0700) == 0)
+					failure = 0;*/
+			//if (failure) {
+				fprintf(stderr, "%s: %m\n", arg0);
+				fprintf(stderr, "Could not open directory at `%s', history not saved.\n", history_path);
+				free(history_path);
+				return NULL;
+			//}
 		}
 
 		// Add mash history filename
@@ -78,18 +87,18 @@ FILE *open_history(struct passwd *PASSWD) {
 
 	// Open file
 	FILE *file = fopen(history_path, "a");
-	if (env_histfile == NULL)
-		free(history_path);
 	if (file == NULL) {
-		fprintf(stderr, "%m\n");
+		fprintf(stderr, "%s: %m\n", arg0);
 		fprintf(stderr, "Could not open file at `%s', history not saved.\n", history_path);
 	}
+	if (env_histfile == NULL)
+		free(history_path);
 	return file;
 }
 
-int mktmpfile(_Bool hidden, char **path) {
+int mktmpfile(_Bool hidden, char **path, Variables *vars) {
 	size_t path_size = 13 + (hidden ? 1 : 0);
-	char *temp_dir = getenv("TMPDIR");
+	char *temp_dir = getvar(vars, "TMPDIR");
 	if (temp_dir == NULL)
 		path_size += 4;
 	else

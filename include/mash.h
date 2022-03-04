@@ -56,9 +56,9 @@ char *expandArgument(CmdArg, Source*, Variables*, uint8_t*);
  * Mash file utilities
  */
 
-FILE *open_config(struct passwd*);
-FILE *open_history(struct passwd*);
-int mktmpfile(_Bool, char**);
+FILE *open_config(struct passwd*, char*);
+FILE *open_history(struct passwd*, char*, Variables*);
+int mktmpfile(_Bool, char**, Variables*);
 FILE *openInputFiles(CmdIO, Source*, Variables*, uint8_t*);
 FILE **openOutputFiles(CmdIO, Source*, Variables*, uint8_t*);
 void closeIOFiles(CmdIO*);

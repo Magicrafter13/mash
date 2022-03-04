@@ -62,7 +62,7 @@ uint8_t cd(size_t argc, void **ptr) {
 	char *newdir = NULL;
 	switch (argc) {
 		case 1: {
-			char *env_home = getenv("HOME");
+			char *env_home = getenv("HOME"); // TODO: replace with getvar - I'd do this now, but I think I'll be retiring the builtins soon
 			if (env_home == NULL) {
 				// Step 1
 				fprintf(stderr, "HOME not set.\n");
