@@ -244,8 +244,6 @@ void closeIOFiles(CmdIO *io) {
 }
 
 FILE *getParentInputFile(Command *cmd) {
-	fprintf(stderr, "Getting parent input file.\n");
-	//cmd = cmd->c_parent;
 	while (cmd->c_parent != NULL) {
 		cmd = cmd->c_parent;
 		if (cmd->c_io.in_file != NULL)
@@ -255,8 +253,6 @@ FILE *getParentInputFile(Command *cmd) {
 }
 
 FILE *getParentOutputFile(Command *cmd) {
-	fprintf(stderr, "Getting parent output file.\n");
-	//cmd = cmd->c_parent;
 	while (cmd->c_parent != NULL) {
 		cmd = cmd->c_parent;
 		if (cmd->c_io.out_file != NULL)
