@@ -27,6 +27,7 @@ struct _cmd_io {
 	size_t in_count, out_count;
 	CmdArg *in_arg, *out_arg;
 	FILE *in_file, **out_file;
+	_Bool in_pipe, out_pipe;
 };
 
 enum _cmd_type {
@@ -47,9 +48,9 @@ struct _command {
 	Command *c_next;
 	Command *c_if_true;
 	Command *c_if_false;
+	Command *c_cmds;
 	Command *c_parent;
 	CmdIO c_io;
-	CmdIO c_block_io;
 };
 
 Command *commandInit();

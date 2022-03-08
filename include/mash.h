@@ -40,6 +40,8 @@ struct _shell_var {
 	hashTable *map;
 };
 
+extern void *_DUMMY_PTR[];
+
 /*
  * Entry Point!
  */
@@ -50,7 +52,7 @@ int main(int, char*[]);
  */
 
 int commandExecute(Command*, AliasMap*, Source**, Variables*, FILE**, uint8_t*, SufTree*);
-char *expandArgument(CmdArg, Source*, Variables*, uint8_t*);
+int expandArgument(char**, CmdArg, Source*, Variables*, uint8_t*);
 
 /*
  * Mash file utilities
@@ -59,8 +61,9 @@ char *expandArgument(CmdArg, Source*, Variables*, uint8_t*);
 FILE *open_config(struct passwd*, char*);
 FILE *open_history(struct passwd*, char*, Variables*);
 int mktmpfile(_Bool, char**, Variables*);
-FILE *openInputFiles(CmdIO, Source*, Variables*, uint8_t*);
-FILE **openOutputFiles(CmdIO, Source*, Variables*, uint8_t*);
+int openInputFiles(CmdIO*, Source*, Variables*, uint8_t*);
+int openOutputFiles(CmdIO*, Source*, Variables*, uint8_t*);
+int openIOFiles(CmdIO*, Source*, Variables*, uint8_t*);
 void closeIOFiles(CmdIO*);
 FILE *getParentInputFile(Command*);
 FILE *getParentOutputFile(Command*);

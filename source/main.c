@@ -17,7 +17,7 @@
 extern char **environ;
 
 int main(int argc, char *argv[]) {
-	uint8_t cmd_exit;
+	uint8_t cmd_exit = 1;
 
 	// Set stderr to be line buffered
 	setvbuf(stderr, NULL, _IOLBF, 0);
@@ -174,49 +174,17 @@ int main(int argc, char *argv[]) {
 				continue;
 			}
 		}
-		// Otherwise, we should advance to the next command
-		else {
-			Command *previous = cmd;
-			closeIOFiles(&cmd->c_io);
-			switch (cmd->c_type) {
-				case CMD_FREED:
-					fprintf(stderr, "CMD_FREED encountered!\n");
-					break;
-				case CMD_WHILE:
-					if (!cmd_exit)
-						cmd = cmd->c_if_true;
-					else {
-						closeIOFiles(&cmd->c_block_io);
-						cmd = cmd->c_next;
-					}
-					cmd_exit = 0;
-					break;
-				case CMD_IF:
-					cmd = !cmd_exit ? cmd->c_if_true : cmd->c_if_false;
-					cmd_exit = 0;
-					break;
-				case CMD_EMPTY:
-				case CMD_REGULAR:
-				default:
-					cmd = cmd->c_next;
-			}
-			// TODO this is ugly, I hate it, and it has a bug
-			if ((previous->c_type == CMD_IF && previous->c_next == cmd)) // Last command was if, and it failed
-				closeIOFiles(&previous->c_block_io);
-			else {
-				if (previous->c_parent != NULL && previous->c_parent->c_type == CMD_IF && previous->c_parent->c_next == cmd)
-					closeIOFiles(&previous->c_block_io);
-			}
-			// If command is now NULL, we need to jump back to the top so we can free memory
-			if (cmd == NULL)
-				continue;
-		}
 
 		/*
 		 * Execute command
 		 */
 		if (commandExecute(cmd, aliases, &source, vars, &history_pool, &cmd_exit, &builtins) == -1)
 			break;
+		while (cmd->c_io.out_pipe)
+			cmd = cmd->c_next;
+
+		// Otherwise, we should advance to the next command
+		cmd = cmd->c_next;
 	}
 
 	if (!subshell && last_cmd->c_buf != NULL)

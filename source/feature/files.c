@@ -119,13 +119,15 @@ int mktmpfile(_Bool hidden, char **path, Variables *vars) {
 	return sub_stdout;
 }
 
-FILE *openInputFiles(CmdIO io, Source *source, Variables *vars, uint8_t *cmd_exit) {
+int openInputFiles(CmdIO *io, Source *source, Variables *vars, uint8_t *cmd_exit) {
 	// File we will return (which will contain the concatenated contents of all requested files)
-	FILE *filein = tmpfile();
+	io->in_file = tmpfile();
 	_Bool error = 0;
-	for (size_t i = 0; i < io.in_count; ++i) {
+	for (size_t i = 0; i < io->in_count; ++i) {
 		// Get filename (path)
-		char *ipath = expandArgument(io.in_arg[i], source, vars, cmd_exit);
+		char *ipath;
+		if (expandArgument(&ipath, io->in_arg[i], source, vars, cmd_exit) == -1)
+			return -1; // Child process with error
 		if (ipath == NULL) {
 			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
 			error = 1;
@@ -146,26 +148,28 @@ FILE *openInputFiles(CmdIO io, Source *source, Variables *vars, uint8_t *cmd_exi
 		char buffer[TMP_RW_BUFSIZE];
 		size_t bytes_read;
 		while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, ifile), bytes_read != 0)
-			fwrite(buffer, sizeof (char), bytes_read, filein);
+			fwrite(buffer, sizeof (char), bytes_read, io->in_file);
 		fclose(ifile);
 	}
-	rewind(filein);
+	rewind(io->in_file);
 	if (error) {
-		fclose(filein);
-		filein = NULL;
+		fclose(io->in_file);
+		io->in_file = NULL;
 	}
 
-	return filein;
+	return error ? 1 : 0;
 }
 
-FILE **openOutputFiles(CmdIO io, Source *source, Variables *vars, uint8_t *cmd_exit) {
-	FILE **fileout = calloc(io.out_count + 1, sizeof (FILE*));
+int openOutputFiles(CmdIO *io, Source *source, Variables *vars, uint8_t *cmd_exit) {
+	io->out_file = calloc(io->out_count + 1, sizeof (FILE*));
 	_Bool error = 0;
 	// Open output files if applicable
 	size_t i;
-	for (i = 0; i < io.out_count; ++i) {
+	for (i = 0; i < io->out_count; ++i) {
 		// Get filename (path)
-		char *opath = expandArgument(io.out_arg[i], source, vars, cmd_exit);
+		char *opath;
+		if (expandArgument(&opath, io->out_arg[i], source, vars, cmd_exit) == -1)
+			return -1; // Child process with error
 		if (opath == NULL) {
 			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
 			error = 1;
@@ -183,18 +187,40 @@ FILE **openOutputFiles(CmdIO io, Source *source, Variables *vars, uint8_t *cmd_e
 		free(opath);
 
 		// Add to array
-		fileout[i] = ofile;
+		io->out_file[i] = ofile;
 	}
 	if (error) {
 		for (size_t j = 0; j < i; ++j)
-			fclose(fileout[j]);
-		free(fileout);
-		fileout = NULL;
+			fclose(io->out_file[j]);
+		free(io->out_file);
+		io->out_file = NULL;
 	}
 	else
-		fileout[i] = tmpfile();
+		io->out_file[i] = tmpfile();
 
-	return fileout;
+	return error ? 1 : 0;
+}
+
+int openIOFiles(CmdIO *io, Source *source, Variables *vars, uint8_t *cmd_exit) {
+	int res = 0;
+	if (io->in_count > 0 && io->in_file == NULL) {
+		res = openInputFiles(io, source, vars, cmd_exit);
+		if (res == -1)
+			return -1;
+	}
+	if ((io->out_count > 0 || io->out_pipe) && io->out_file == NULL) {
+		res = openOutputFiles(io, source, vars, cmd_exit);
+		if (res == -1) {
+			if (io->in_file != NULL) {
+				fclose(io->in_file);
+				io->in_file = NULL;
+				return -1;
+			}
+		}
+		/*if (io->out_pipe)
+			cmd->c_next->c_io.in_file = cmd->c_io.out_file[cmd->c_io.out_count];*/
+	}
+	return res;
 }
 
 void closeIOFiles(CmdIO *io) {
@@ -202,7 +228,7 @@ void closeIOFiles(CmdIO *io) {
 		fclose(io->in_file);
 		io->in_file = NULL;
 	}
-	if (io->out_file != NULL) {
+	if (io->out_file != NULL && io->out_count > 0) {
 		rewind(io->out_file[io->out_count]);
 		char buffer[TMP_RW_BUFSIZE];
 		size_t bytes_read;
@@ -218,21 +244,23 @@ void closeIOFiles(CmdIO *io) {
 }
 
 FILE *getParentInputFile(Command *cmd) {
+	fprintf(stderr, "Getting parent input file.\n");
 	//cmd = cmd->c_parent;
-	while (cmd != cmd->c_parent) {
-		if (cmd->c_block_io.in_file != NULL)
-			break;
+	while (cmd->c_parent != NULL) {
 		cmd = cmd->c_parent;
+		if (cmd->c_io.in_file != NULL)
+			break;
 	}
-	return cmd->c_block_io.in_file;
+	return cmd->c_io.in_file;
 }
 
 FILE *getParentOutputFile(Command *cmd) {
+	fprintf(stderr, "Getting parent output file.\n");
 	//cmd = cmd->c_parent;
-	while (cmd != cmd->c_parent) {
-		if (cmd->c_block_io.out_file != NULL)
-			break;
+	while (cmd->c_parent != NULL) {
 		cmd = cmd->c_parent;
+		if (cmd->c_io.out_file != NULL)
+			break;
 	}
-	return cmd->c_block_io.out_count > 0 ? cmd->c_block_io.out_file[cmd->c_block_io.out_count] : NULL;
+	return cmd->c_io.out_count > 0 ? cmd->c_io.out_file[cmd->c_io.out_count] : NULL;
 }

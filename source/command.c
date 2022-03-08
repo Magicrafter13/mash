@@ -10,6 +10,27 @@ size_t shiftArg(Command *cmd) {
 	return --cmd->c_argc;
 }
 
+#define dupSpecialCommand(cmd) { \
+	Command *new_loc = commandInit(); \
+	*new_loc = *cmd; \
+\
+	*cmd = (Command){}; /* Zero out everything */ \
+	cmd->c_len = new_loc->c_len; \
+	cmd->c_size = new_loc->c_size; \
+	cmd->c_buf = new_loc->c_buf; \
+	cmd->c_next = new_loc; \
+}
+/*void dupSpecialCommand(Command *cmd) {
+	Command *new_loc = commandInit();
+	*new_loc = *cmd;
+
+	*cmd = (Command){}; // Zero out everything
+	cmd->c_len = new_loc->c_len;
+	cmd->c_size = new_loc->c_size;
+	cmd->c_buf = new_loc->c_buf;
+	cmd->c_next = new_loc;
+}*/
+
 int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING)
 		return 0;
@@ -19,12 +40,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_type = CMD_DO;
 		else {
 			shiftArg(cmd);
-			cmd->c_next = commandInit();
-			Command tmp_empty = *cmd->c_next;
-			tmp_empty.c_next = cmd->c_next;
-			*cmd->c_next = *cmd;
-			cmd->c_next->c_next = NULL;
-			*cmd = tmp_empty;
+			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_DO;
 
 			int ret = parseMultiline(cmd->c_next, istream, ostream);
@@ -33,6 +49,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 					case CMD_DO:
 					case CMD_THEN:
 					case CMD_ELSE:
+					case CMD_FI:
 						ret = 1;
 						break;
 					default:
@@ -47,20 +64,15 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_type = CMD_THEN;
 		else {
 			shiftArg(cmd);
-			cmd->c_next = commandInit();
-			Command tmp_empty = *cmd->c_next;
-			tmp_empty.c_next = cmd->c_next;
-			*cmd->c_next = *cmd;
-			cmd->c_next->c_next = NULL;
-			*cmd = tmp_empty;
+			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_THEN;
 
 			int ret = parseMultiline(cmd->c_next, istream, ostream);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
+					case CMD_DONE:
 					case CMD_THEN:
-					case CMD_ELSE:
 						ret = 1;
 						break;
 					default:
@@ -75,18 +87,14 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_type = CMD_ELSE;
 		else {
 			shiftArg(cmd);
-			cmd->c_next = commandInit();
-			Command tmp_empty = *cmd->c_next;
-			tmp_empty.c_next = cmd->c_next;
-			*cmd->c_next = *cmd;
-			cmd->c_next->c_next = NULL;
-			*cmd = tmp_empty;
+			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_ELSE;
 
 			int ret = parseMultiline(cmd->c_next, istream, ostream);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
+					case CMD_DONE:
 					case CMD_THEN:
 					case CMD_ELSE:
 						ret = 1;
@@ -113,213 +121,264 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 		cmd->c_type = CMD_FI;
 	}
 	else if (!strcmp(cmd->c_argv[0].str, "while")) {
-		// Shift out "while" arg, abort if no arguments remain
-		if (shiftArg(cmd) == 0)
-			return 1; // TODO set error length thing
+		// Shift out "while" arg if it is not alone
+		if (cmd->c_argc > 1) {
+			shiftArg(cmd);
+			dupSpecialCommand(cmd);
+		}
+		else {
+			// Error if while had no extra arguments yet contained a pipe!
+			if (cmd->c_io.out_pipe) { // Could test if c_next != NULL but this seems cleaner
+				cmd->c_buf[0] = '|';
+				return 1;
+			}
+			// Error if while had no extra arguments yet contained < or > redirection
+			if (cmd->c_io.in_count > 0) {
+				cmd->c_buf[0] = '<';
+				return 1;
+			}
+			if (cmd->c_io.out_count > 0) {
+				cmd->c_buf[0] = '>';
+				return 1;
+			}
+		}
 
 		// Save pointer to while command, and alloc new command for "do"
 		cmd->c_type = CMD_WHILE;
-		cmd->c_parent = cmd;
-		Command *const while_cmd = cmd;
-		cmd->c_if_true = commandInit();
-		cmd = cmd->c_if_true;
-		cmd->c_len = while_cmd->c_len;
-		cmd->c_size = while_cmd->c_size;
-		cmd->c_buf = while_cmd->c_buf;
-
-		// Get "do" TODO: bash allows you to enter multiple commands before do
-		const int parse_result = commandParse(cmd, istream, ostream);
-		if (parse_result == -1)
-			return -1;
-		if (parse_result) {
-			while_cmd->c_len = cmd->c_len;
-			return 1;
-		}
-		// Check if command is do
-		//if (cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "do")) {
-		if (cmd->c_type != CMD_DO) {
-			// TODO error length
-			return 1;
-		}
-		if (cmd->c_next != NULL) {
-			cmd = cmd->c_next;
-			cmd->c_parent = while_cmd; // Set parent command
-		}
-
-		// Parse commands until user enters "done"
-		_Bool found_done = 0;
-		do {
-			// Read one command
-			Command *const previous = cmd;
-			cmd->c_next = commandInit();
-			if (cmd->c_type == CMD_IF) { // Update last true/false command to point to new cmd
-				Command *tmp_ptr = cmd->c_if_true;
-				if (tmp_ptr != NULL) {
-					while (tmp_ptr->c_next != NULL)
-						tmp_ptr = tmp_ptr->c_next;
-					tmp_ptr->c_next = cmd->c_next;
-				}
-				tmp_ptr = cmd->c_if_false;
-				if (tmp_ptr != NULL) {
-					while (tmp_ptr->c_next != NULL)
-						tmp_ptr = tmp_ptr->c_next;
-					tmp_ptr->c_next = cmd->c_next;
-				}
+		Command *const while_cmd = cmd, *test_cmd = cmd->c_next;
+		// Parse anything that came after "while"
+		if (test_cmd != NULL) {
+			int res = parseMultiline(test_cmd, istream, ostream);
+			if (res != 0)
+				return res;
+			test_cmd->c_parent = while_cmd;
+			while (test_cmd->c_next != NULL) {
+				test_cmd = test_cmd->c_next;
+				test_cmd->c_parent = while_cmd;
 			}
-			cmd = cmd->c_next;
-			cmd->c_len = previous->c_len;
-			cmd->c_size = previous->c_size;
-			cmd->c_buf = previous->c_buf;
+		}
+		else
+			test_cmd = while_cmd;
+
+		// Read commands until "do"
+		for (;;) {
+			cmd = commandInit();
+			cmd->c_len = test_cmd->c_len;
+			cmd->c_size = test_cmd->c_size;
+			cmd->c_buf = test_cmd->c_buf;
+
 			const int parse_result = commandParse(cmd, istream, ostream);
-			if (parse_result == -1)
+			if (parse_result == -1) {
+				commandFree(cmd);
+				free(cmd);
 				return -1;
+			}
 			if (parse_result) {
+				commandFree(cmd);
+				free(cmd);
 				while_cmd->c_len = cmd->c_len;
 				return 1;
 			}
+			if (cmd->c_buf != while_cmd->c_buf) {
+				while_cmd->c_size = cmd->c_size;
+				while_cmd->c_buf = cmd->c_buf;
+			}
+			if (cmd->c_type == CMD_DO)
+				break;
 			cmd->c_parent = while_cmd;
+			test_cmd->c_next = cmd;
+			test_cmd = cmd;
+			while (test_cmd->c_next != NULL) {
+				test_cmd = test_cmd->c_next;
+				test_cmd->c_parent = while_cmd;
+			}
+		}
+		while_cmd->c_if_true = cmd; // CMD_DO
+		while_cmd->c_cmds = while_cmd->c_next;
+		while_cmd->c_next = NULL;
+		// Jump over do's command chain (if it has one)
+		while (cmd->c_next != NULL) {
+			cmd = cmd->c_next;
+			cmd->c_parent = while_cmd;
+		}
 
-			// Check if command is "done"
-			/*if (cmd->c_argc == 0) // Ignore blank lines and comments
-				continue;
-			if (cmd->c_type != CMD_REGULAR) // Ignore irrelevant command types
-				continue;
-			if (cmd->c_argv[0].type != ARG_BASIC_STRING) // Ignore other argument types
-				continue;
-			if (strcmp(cmd->c_argv[0].str, "done")) // Ignore if not "done"
-				continue;*/
-			if (cmd->c_type != CMD_DONE)
-				continue;
-			// Error if anything came after 'done'
-			if (cmd->c_argc != 1) {
+		// Read commands until "done"
+		Command *body_cmd = cmd;
+		for (;;) {
+			cmd = commandInit();
+			cmd->c_len = body_cmd->c_len;
+			cmd->c_size = body_cmd->c_size;
+			cmd->c_buf = body_cmd->c_buf;
+
+			const int parse_result = commandParse(cmd, istream, ostream);
+			if (parse_result == -1) {
+				commandFree(cmd);
+				free(cmd);
+				return -1;
+			}
+			if (parse_result) {
+				commandFree(cmd);
+				free(cmd);
 				while_cmd->c_len = cmd->c_len;
-				cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
 				return 1;
 			}
-
-			// Point last command to while, set while's block_io, and free the done command
-			//previous->c_next = while_cmd;
-			cmd->c_next = while_cmd;
-			while_cmd->c_block_io = cmd->c_io;
-			cmd->c_io = (CmdIO){};
-			/*commandFree(cmd);
-			free(cmd);*/
-			found_done = 1;
+			if (cmd->c_buf != while_cmd->c_buf) {
+				while_cmd->c_size = cmd->c_size;
+				while_cmd->c_buf = cmd->c_buf;
+			}
+			if (cmd->c_type == CMD_DONE)
+				break;
+			cmd->c_parent = while_cmd;
+			body_cmd->c_next = cmd;
+			while (body_cmd->c_next != NULL)
+				body_cmd = body_cmd->c_next;
 		}
-		while (!found_done);
+		while_cmd->c_next = cmd; // CMD_DONE
+		while_cmd->c_io = cmd->c_io;
+		cmd->c_io = (CmdIO){};
 	}
 	else if (!strcmp(cmd->c_argv[0].str, "if")) {
-		// Shift out "if" arg, abort if no arguments remain
-		if (shiftArg(cmd) == 0)
-			return 1; // TODO set error length thing
+		// Shift out "if" arg if it is not alone
+		if (cmd->c_argc > 1) {
+			shiftArg(cmd);
+			dupSpecialCommand(cmd);
+		}
+		else {
+			// Error if while had no extra arguments yet contained a pipe!
+			if (cmd->c_io.out_pipe) { // Could test if c_next != NULL but this seems cleaner
+				cmd->c_buf[0] = '|';
+				return 1;
+			}
+			// Error if while had no extra arguments yet contained < or > redirection
+			if (cmd->c_io.in_count > 0) {
+				cmd->c_buf[0] = '<';
+				return 1;
+			}
+			if (cmd->c_io.out_count > 0) {
+				cmd->c_buf[0] = '>';
+				return 1;
+			}
+		}
 
 		// Save pointer to if command, and alloc new command for "then"
 		cmd->c_type = CMD_IF;
-		cmd->c_parent = cmd;
-		Command *const if_cmd = cmd;
-		cmd->c_if_true = commandInit();
-		cmd = cmd->c_if_true;
-		cmd->c_len = if_cmd->c_len;
-		cmd->c_size = if_cmd->c_size;
-		cmd->c_buf = if_cmd->c_buf;
-
-		// Get "then" TODO: bash allows you to enter multiple commands before then
-		const int parse_result = commandParse(cmd, istream, ostream);
-		if (parse_result == -1)
-			return -1;
-		if (parse_result) {
-			if_cmd->c_len = cmd->c_len;
-			return 1;
-		}
-		// Check if command is then
-		//if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING || strcmp(cmd->c_argv[0].str, "then")) {
-		if (cmd->c_type != CMD_THEN) {
-			//if_cmd->c_len = error_length;
-			return 1;
-		}
-		if (cmd->c_next != NULL) {
-			cmd = cmd->c_next;
-			cmd->c_parent = if_cmd; // Set parent command
-		}
-
-		// Parse commands until one has "fi" in it. (Also check for "else" and switch to if_false.)
-		Command *last_true = NULL; // only used if "else" is encountered
-		_Bool found_fi = 0;
-		do {
-			// Read one command
-			Command *const previous = cmd;
-			cmd->c_next = commandInit();
-			if (cmd->c_type == CMD_IF) { // Update last true/false command to point to new cmd
-				Command *tmp_ptr = cmd->c_if_true;
-				if (tmp_ptr != NULL) {
-					while (tmp_ptr->c_next != NULL)
-						tmp_ptr = tmp_ptr->c_next;
-					tmp_ptr->c_next = cmd->c_next;
-				}
-				tmp_ptr = cmd->c_if_false;
-				if (tmp_ptr != NULL) {
-					while (tmp_ptr->c_next != NULL)
-						tmp_ptr = tmp_ptr->c_next;
-					tmp_ptr->c_next = cmd->c_next;
-				}
+		Command *const if_cmd = cmd, *test_cmd = cmd->c_next;
+		// Parse anything that came after "if"
+		if (test_cmd != NULL) {
+			int res = parseMultiline(test_cmd, istream, ostream);
+			if (res != 0)
+				return res;
+			test_cmd->c_parent = if_cmd;
+			while (test_cmd->c_next != NULL) {
+				test_cmd = test_cmd->c_next;
+				test_cmd->c_parent = if_cmd;
 			}
-			cmd = cmd->c_next;
-			cmd->c_len = previous->c_len;
-			cmd->c_size = previous->c_size;
-			cmd->c_buf = previous->c_buf;
+		}
+		else
+			test_cmd = if_cmd;
+
+		// Read commands until "then"
+		for (;;) {
+			cmd = commandInit();
+			cmd->c_len = test_cmd->c_len;
+			cmd->c_size = test_cmd->c_size;
+			cmd->c_buf = test_cmd->c_buf;
+
 			const int parse_result = commandParse(cmd, istream, ostream);
-			if (parse_result == -1)
+			if (parse_result == -1) {
+				commandFree(cmd);
+				free(cmd);
 				return -1;
+			}
 			if (parse_result) {
+				commandFree(cmd);
+				free(cmd);
 				if_cmd->c_len = cmd->c_len;
 				return 1;
 			}
+			if (cmd->c_buf != if_cmd->c_buf) {
+				if_cmd->c_size = cmd->c_size;
+				if_cmd->c_buf = cmd->c_buf;
+			}
+			if (cmd->c_type == CMD_THEN)
+				break;
 			cmd->c_parent = if_cmd;
+			test_cmd->c_next = cmd;
+			test_cmd = cmd;
+			while (test_cmd->c_next != NULL) {
+				test_cmd = test_cmd->c_next;
+				test_cmd->c_parent = if_cmd;
+			}
+		}
+		if_cmd->c_if_true = cmd; // CMD_THEN
+		if_cmd->c_cmds = if_cmd->c_next;
+		if_cmd->c_next = NULL;
+		// Jump over then's command chain (if it has one)
+		while (cmd->c_next != NULL) {
+			cmd = cmd->c_next;
+			cmd->c_parent = if_cmd;
+		}
 
-			// Check if command is done or else
-			/*if (cmd->c_argc == 0) // Ignore blank lines and comments
-				continue;
-			if (cmd->c_type != CMD_REGULAR) // Ignore irrelevant command types
-				continue;
-			if (cmd->c_argv[0].type != ARG_BASIC_STRING) // Ignore other argument types
-				continue;*/
-			//if (!strcmp(cmd->c_argv[0].str, "else")) {
+		// Parse anything that came after "then"
+		/*if (cmd->c_argc > 1) {
+			shiftArg(cmd);
+			dupSpecialCommand(cmd);
+			int res = parseMultiline(cmd->c_next, istream, ostream);
+			if (res != 0)
+				return res;
+			do {
+				cmd = cmd->c_next;
+				cmd->c_parent = if_cmd;
+			}
+			while (cmd->c_next != NULL);
+		}*/
+
+		// Read commands until "fi"
+		Command *body_cmd = cmd;
+		for (;;) {
+			cmd = commandInit();
+			cmd->c_len = body_cmd->c_len;
+			cmd->c_size = body_cmd->c_size;
+			cmd->c_buf = body_cmd->c_buf;
+
+			const int parse_result = commandParse(cmd, istream, ostream);
+			if (parse_result == -1) {
+				commandFree(cmd);
+				free(cmd);
+				return -1;
+			}
+			if (parse_result) {
+				commandFree(cmd);
+				free(cmd);
+				if_cmd->c_len = cmd->c_len;
+				return 1;
+			}
+			if (cmd->c_buf != if_cmd->c_buf) {
+				if_cmd->c_size = cmd->c_size;
+				if_cmd->c_buf = cmd->c_buf;
+			}
 			if (cmd->c_type == CMD_ELSE) {
-				// Check if we've already gotten an else
 				if (if_cmd->c_if_false != NULL) {
 					//original->c_len = error_length;// + cmd->c_len;
-					cmd->c_buf[0] = 'e'; // TODO parse error near `c' should actually print string, not just single char...
+					if_cmd->c_buf[0] = 'e'; // TODO parse error near `c' should actually print string, not just single char...
 					return 1;
 				}
-
-				// Save final statement in block, point if_cmd to else, and shift "else" out of command
-				last_true = previous;
-				last_true->c_next = NULL;
-				if_cmd->c_if_false = cmd;
+				if_cmd->c_if_false = body_cmd = cmd;
+				while (body_cmd->c_next != NULL)
+					body_cmd = body_cmd->c_next;
 				continue;
 			}
-			//if (strcmp(cmd->c_argv[0].str, "fi")) // Ignore if not 'fi'
-			if (cmd->c_type != CMD_FI)
-				continue;
-			// Error if anything came after 'fi'
-			/*if (cmd->c_argc != 1) {
-				//if_cmd->c_len = error_length;
-				cmd->c_buf[0] = cmd->c_argv[1].str[0];
-				return 1;
-			}*/
-
-			// Point last true and false command to NULL, set if's block_io, and free the fi command
-			//previous->c_next = NULL;
-			if (last_true != NULL)
-				last_true->c_next = cmd;
-			//cmd->c_type = CMD_EMPTY;
-			if_cmd->c_block_io = cmd->c_io;
-			cmd->c_io = (CmdIO){};
-			/*commandFree(cmd);
-			free(cmd);*/
-			found_fi = 1;
+			else if (cmd->c_type == CMD_FI)
+				break;
+			cmd->c_parent = if_cmd;
+			body_cmd->c_next = cmd;
+			body_cmd = cmd;
+			while (body_cmd->c_next != NULL)
+				body_cmd = body_cmd->c_next;
 		}
-		while (!found_fi);
+		if_cmd->c_next = cmd; // CMD_FI
+		if_cmd->c_io = cmd->c_io;
+		cmd->c_io = (CmdIO){};
 	}
 	return 0;
 }
@@ -344,7 +403,8 @@ void freeCmdIO(CmdIO *io) {
 	}
 	if (io->out_file != NULL) {
 		for (size_t i = 0; i < io->out_count; ++i)
-			fclose(io->out_file[i]);
+			if (i != io->out_count - 1 || !io->out_pipe)
+				fclose(io->out_file[i]);
 		free(io->out_file);
 		io->out_file = NULL;
 	}
@@ -356,7 +416,7 @@ ssize_t lengthSingleQuote(char*);
 ssize_t lengthDoubleQuote(char*);
 ssize_t lengthRegInDouble(char *);
 ssize_t lengthDollarExp(char*);
-int commandTokenize(Command*, char*);
+int commandTokenize(Command*, FILE*restrict, FILE*restrict);
 
 Command *commandInit() {
 	Command *new_command = malloc(sizeof (Command));
@@ -372,14 +432,6 @@ Command *commandInit() {
 		.c_if_false = NULL,
 		.c_parent = NULL,
 		.c_io = (CmdIO){
-			.in_count = 0,
-			.out_count = 0,
-			.in_arg = NULL,
-			.out_arg = NULL,
-			.in_file = NULL,
-			.out_file = NULL
-		},
-		.c_block_io = (CmdIO){
 			.in_count = 0,
 			.out_count = 0,
 			.in_arg = NULL,
@@ -422,7 +474,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 	size_t error_length = 0;
 	// Parse Input (into tokens)
-	if (commandTokenize(cmd, cmd->c_buf)) { // Determine tokens and save them into cmd->c_argv
+	if (commandTokenize(cmd, istream, ostream)) { // Determine tokens and save them into cmd->c_argv
 		// Error parsing command.
 		original->c_len = error_length + cmd->c_len;
 		cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
@@ -456,6 +508,7 @@ ssize_t lengthRegular(char *buf) {
 			case ';':
 			case '<':
 			case '>':
+			case '|':
 				return l;
 			case '\\':
 				c = buf[++l];
@@ -572,7 +625,8 @@ ssize_t lengthDollarExp(char *buf) {
 	return l;
 }
 
-int commandTokenize(Command *cmd, char *buf) {
+int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
+	char *buf = cmd->c_buf;
 	/*
 	 * end: current parse index - when finished it will point one char past the end of the command
 	 * argc: how many args this command has
@@ -583,10 +637,12 @@ int commandTokenize(Command *cmd, char *buf) {
 	 * need_file: whether we are waiting for a filename argument (for < or >)
 	 */
 	size_t end = 0, argc = 0, input_count = 0, output_count = 0;
-	_Bool done = 0, whitespace = 1, need_file = 0;
+	_Bool done = 0, whitespace = 1, need_file = 0, has_pipe = 0;
 	while (end <= cmd->c_len && !done) {
 		_Bool parse_run = 1;
 		switch (buf[end]) {
+			case '|':
+				has_pipe = 1;
 			case ';': // End of this command
 				if (end == 0) {
 					cmd->c_len = end;
@@ -789,6 +845,7 @@ int commandTokenize(Command *cmd, char *buf) {
 				}
 				parse_regular = 1;
 				break;
+			case '|':
 			case ';': // End of this command
 				if (inDoubleQuote)
 					parse_regular = 1;
@@ -853,6 +910,41 @@ int commandTokenize(Command *cmd, char *buf) {
 	cmd->c_len -= end;
 	cmd->c_type = CMD_REGULAR;
 
+	// Read next command if applicable (pipe, &&, ||)
+	if (has_pipe) {
+		Command *next = cmd->c_next = commandInit();
+		next->c_len = cmd->c_len;
+		next->c_size = cmd->c_size;
+		next->c_buf = cmd->c_buf;
+		const int parse_result = commandParse(next, istream, ostream);
+		if (next->c_buf != cmd->c_buf) {
+			cmd->c_size = next->c_size;
+			cmd->c_buf = next->c_buf;
+		}
+		switch (parse_result) {
+			case 0:
+				break;
+			default:
+				cmd->c_len = next->c_len;
+			case -1:
+				return parse_result;
+		}
+		switch (next->c_type) {
+			case CMD_DO: case CMD_DONE:
+			case CMD_THEN: case CMD_ELSE: case CMD_FI:
+				// TODO: set error length
+				return 1;
+			default:
+				break;
+		}
+		cmd->c_io.out_pipe = 1;
+		/*next->c_io.in_arg = reallocarray(next->c_io.in_arg, ++next->c_io.in_count, sizeof (CmdArg));
+		for (size_t i = next->c_io.in_count - 1; i > 0; --i)
+			next->c_io.in_arg[i] = next->c_io.in_arg[i - 1];
+		next->c_io.in_arg[0] = (CmdArg){ .type = ARG_PIPE };*/
+		next->c_io.in_pipe = 1;
+	}
+
 	return 0;
 }
 
@@ -894,21 +986,31 @@ void commandFree(Command *cmd) {
 		commandFree(cmd->c_next);
 		free(cmd->c_next);
 	}
-	if (cmd->c_if_true != NULL && cmd->c_if_true->c_type != CMD_FREED) {
-		commandFree(cmd->c_if_true);
-		free(cmd->c_if_true);
+	if (cmd->c_if_true != NULL) {
+		if (cmd->c_if_true->c_type != CMD_FREED) {
+			commandFree(cmd->c_if_true);
+			free(cmd->c_if_true);
+		}
 		cmd->c_if_true = NULL;
 	}
-	if (cmd->c_if_false != NULL && cmd->c_if_false->c_type != CMD_FREED) {
-		commandFree(cmd->c_if_false);
-		free(cmd->c_if_false);
+	if (cmd->c_if_false != NULL) {
+		if (cmd->c_if_false->c_type != CMD_FREED) {
+			commandFree(cmd->c_if_false);
+			free(cmd->c_if_false);
+		}
 		cmd->c_if_false = NULL;
+	}
+	if (cmd->c_cmds != NULL) {
+		if (cmd->c_cmds->c_type != CMD_FREED) {
+			commandFree(cmd->c_cmds);
+			free(cmd->c_cmds);
+		}
+		cmd->c_cmds = NULL;
 	}
 
 	cmd->c_next = cmd->c_parent = NULL;
 
 	freeCmdIO(&cmd->c_io);
-	freeCmdIO(&cmd->c_block_io);
 }
 
 void freeArg(CmdArg a) {

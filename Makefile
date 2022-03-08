@@ -15,7 +15,7 @@ CFLAGS   =
 CXXFLAGS =
 CPPFLAGS = -c -I$(INCLUDE) -Wall -Werror=implicit-function-declaration -std=c99
 LDFLAGS  =
-LDLIBS   =
+LDLIBS   = -lpthread
 
 all: $(BUILD) $(DIRS)
 	@$(MAKE) $(BUILD)/$(PROG) --no-print-directory

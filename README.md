@@ -16,19 +16,19 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Redirection (`<` and `>`)
 - Removing environment variables with `unset`
 - Set prompt with `$PS1`, supports bash prompt expansion tokens. Also supports `$PROMPT_COMMAND` which if set, will always execute before displaying your prompt (for fancier things like powerline).
+- Pipes via `|`
 
 # TODO
 
 ## Command Parser
 
 - Handle arrow keys (nobody wants their arrow keys to print `^[[A`, they want them to do actions)
-- Pipes
 - For loops
 
 ## Behind the Scenes
 
 - Create `$XDG\_CONFIG\_HOME/mash/config.mash`?
-- Move history file to `$XDG_STATE_HOME`.
+- Keep history loaded in memory to allow for `!` statements and possibly arrow keys (up/down).
 
 ## Code Improvements
 
