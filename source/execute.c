@@ -385,6 +385,21 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 		return 0;
 	}
 
+	// Check for exec
+	if (!strcmp(e_argv[0], "exec")) {
+		if (cmd->c_argc == 1) {
+			fprintf(stderr, "%s: exec: requires at least one argument\n", source->argv[0]);
+			for (size_t v = 0; v < cmd->c_argc; ++v)
+				free(e_argv[v]);
+			*cmd_exit = 1;
+			return 0;
+		}
+		char *exec = e_argv[0];
+		for (size_t i = 0; i < cmd->c_argc; ++i)
+			e_argv[i] = e_argv[i + 1];
+		e_argv[cmd->c_argc] = exec;
+	}
+
 	// Setup pipe
 	int pin[2] = { fds[0], -1 }, pout[2] = { -1, -1 };
 	if (cmd->c_io.out_pipe) {
@@ -495,6 +510,13 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	// Set exit status (unless we piped, as the next programs exit status is used)
 	if (!cmd->c_io.out_pipe)
 		*cmd_exit = WEXITSTATUS(cmd_stat);
+	// Return -1 if command was exec
+	if (e_argv[cmd->c_argc] != NULL) {
+		for (size_t i = 0; i < cmd->c_argc - 1; ++i)
+			free(e_argv[i]);
+		free(e_argv[cmd->c_argc]);
+		return -1;
+	}
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		free(e_argv[i]);
 	return 0;
