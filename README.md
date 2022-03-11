@@ -5,19 +5,23 @@ Not necessarily trying to bring any unique features to the table, I just want to
 
 # Features
 
+## Commands/Builtins
+- Change directory with `cd`
+- Set environment variables (or move shell variables to the environment) with `export`
+- Flow control: `if`, and `while`
+- Aliases: `alias` and `unalias`
+- Removing environment variables with `unset`
+- POSIX `exec` (only for executing commands, does not have file descriptor functionality)
+
+## Others
 - Run scripts (can be used as a shebang)
 - Version info `--version`
-- Change directory with `cd`
-- Environment variables with `$varname` - set with `export` (also regular shell variables)
-- Flow control: `if`, and `while`
+- Environment and shell variables with `$varname`
 - Run single command with `-c command`
 - Subshells with `$(command)` - if inside double quotes, you will get the exact output contents (otherwise it is tokenized)
-- Aliases: `alias` and `unalias`
 - Redirection (`<` and `>`)
-- Removing environment variables with `unset`
 - Set prompt with `$PS1`, supports bash prompt expansion tokens. Also supports `$PROMPT_COMMAND` which if set, will always execute before displaying your prompt (for fancier things like powerline).
 - Pipes via `|`
-- POSIX `exec` (only for executing commands, does not have file descriptor functionality)
 
 # TODO
 
