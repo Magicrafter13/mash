@@ -20,16 +20,6 @@ size_t shiftArg(Command *cmd) {
 	cmd->c_buf = new_loc->c_buf; \
 	cmd->c_next = new_loc; \
 }
-/*void dupSpecialCommand(Command *cmd) {
-	Command *new_loc = commandInit();
-	*new_loc = *cmd;
-
-	*cmd = (Command){}; // Zero out everything
-	cmd->c_len = new_loc->c_len;
-	cmd->c_size = new_loc->c_size;
-	cmd->c_buf = new_loc->c_buf;
-	cmd->c_next = new_loc;
-}*/
 
 int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING)
@@ -319,20 +309,6 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_parent = if_cmd;
 		}
 
-		// Parse anything that came after "then"
-		/*if (cmd->c_argc > 1) {
-			shiftArg(cmd);
-			dupSpecialCommand(cmd);
-			int res = parseMultiline(cmd->c_next, istream, ostream);
-			if (res != 0)
-				return res;
-			do {
-				cmd = cmd->c_next;
-				cmd->c_parent = if_cmd;
-			}
-			while (cmd->c_next != NULL);
-		}*/
-
 		// Read commands until "fi"
 		Command *body_cmd = cmd;
 		for (;;) {
@@ -390,23 +366,12 @@ void freeCmdIO(CmdIO *io) {
 		free(io->in_arg);
 		io->in_arg = NULL;
 	}
-	if (io->in_file != NULL) {
-		fclose(io->in_file);
-		io->in_file = NULL;
-	}
 	io->in_count = 0;
 	if (io->out_arg != NULL) {
 		for (size_t i = 0; i < io->out_count; ++i)
 			freeArg(io->out_arg[i]);
 		free(io->out_arg);
 		io->out_arg = NULL;
-	}
-	if (io->out_file != NULL) {
-		for (size_t i = 0; i < io->out_count; ++i)
-			if (i != io->out_count - 1 || !io->out_pipe)
-				fclose(io->out_file[i]);
-		free(io->out_file);
-		io->out_file = NULL;
 	}
 	io->out_count = 0;
 }
@@ -449,7 +414,8 @@ int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 		return -1;
 
 	if (ostream != NULL) {
-		fwrite(cmd->c_buf, sizeof (char), cmd->c_len, ostream);
+		fputs(cmd->c_buf, ostream);
+		//fwrite(cmd->c_buf, sizeof (char), cmd->c_len, ostream);
 		fflush(ostream);
 	}
 
@@ -736,7 +702,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 			++end;
 	}
 #ifdef DEBUG
-	fprintf(stderr, "Argc: %lu\n", argc);
+	fprintf(stderr, "Argc: %zu\n", argc);
 #endif
 	cmd->c_argc = argc;
 	if (cmd->c_argc == 0) {
@@ -938,10 +904,6 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 				break;
 		}
 		cmd->c_io.out_pipe = 1;
-		/*next->c_io.in_arg = reallocarray(next->c_io.in_arg, ++next->c_io.in_count, sizeof (CmdArg));
-		for (size_t i = next->c_io.in_count - 1; i > 0; --i)
-			next->c_io.in_arg[i] = next->c_io.in_arg[i - 1];
-		next->c_io.in_arg[0] = (CmdArg){ .type = ARG_PIPE };*/
 		next->c_io.in_pipe = 1;
 	}
 
@@ -982,33 +944,28 @@ void commandFree(Command *cmd) {
 		cmd->c_argc = 0;
 	}
 
-	if (cmd->c_next != NULL && (cmd->c_parent == NULL || cmd->c_parent->c_next != cmd->c_next) && cmd->c_next->c_type != CMD_FREED) {
+	if (cmd->c_next != NULL) {
 		commandFree(cmd->c_next);
 		free(cmd->c_next);
+		cmd->c_next = NULL;
 	}
 	if (cmd->c_if_true != NULL) {
-		if (cmd->c_if_true->c_type != CMD_FREED) {
-			commandFree(cmd->c_if_true);
-			free(cmd->c_if_true);
-		}
+		commandFree(cmd->c_if_true);
+		free(cmd->c_if_true);
 		cmd->c_if_true = NULL;
 	}
 	if (cmd->c_if_false != NULL) {
-		if (cmd->c_if_false->c_type != CMD_FREED) {
-			commandFree(cmd->c_if_false);
-			free(cmd->c_if_false);
-		}
+		commandFree(cmd->c_if_false);
+		free(cmd->c_if_false);
 		cmd->c_if_false = NULL;
 	}
 	if (cmd->c_cmds != NULL) {
-		if (cmd->c_cmds->c_type != CMD_FREED) {
-			commandFree(cmd->c_cmds);
-			free(cmd->c_cmds);
-		}
+		commandFree(cmd->c_cmds);
+		free(cmd->c_cmds);
 		cmd->c_cmds = NULL;
 	}
 
-	cmd->c_next = cmd->c_parent = NULL;
+	cmd->c_parent = NULL;
 
 	freeCmdIO(&cmd->c_io);
 }

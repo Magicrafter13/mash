@@ -25,11 +25,11 @@ int main(int argc, char *argv[]) {
 	// Determine shell type
 	int login = argv[0][0] == '-';
 	if (login)
-		fprintf(stderr, "This mash is a login shell.\n");
+		fputs("This mash is a login shell.\n", stderr);
 
 	int interactive = argc == 1 && isatty(fileno(stdin)), subshell = 0;
 	if (interactive)
-		fprintf(stderr, "This mash is interactive.\n");
+		fputs("This mash is interactive.\n", stderr);
 
 	// Create shell environment
 	Source *source = sourceInit();
@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
 	if (interactive) { // Source config
 		history_pool = tmpfile();
 		if (history_pool == NULL)
-			fprintf(stderr, "Cannot create temporary file, command history will not be recorded.\n");
+			fputs("Cannot create temporary file, command history will not be recorded.\n", stderr);
 		source->output = history_pool;
 		FILE *config = open_config(PASSWD, argv[0]);
 		if (config != NULL)
@@ -111,6 +111,7 @@ int main(int argc, char *argv[]) {
 	for (;;) {
 		// cmd == NULL tells us we need to free the current command chain, then read more
 		if (cmd == NULL) {
+			closeIOFiles(&last_cmd->c_io);
 			commandFree(last_cmd);
 			cmd = last_cmd;
 
@@ -152,7 +153,7 @@ int main(int argc, char *argv[]) {
 					break;
 				if (errno > 11) {
 					int err = errno;
-					fprintf(stderr, "%s\n", strerror(err));
+					fprintf(stderr, "%s: %m\n", source->argv[0]);
 					cmd_exit = err;
 					break;
 				}
@@ -163,7 +164,7 @@ int main(int argc, char *argv[]) {
 					continue;
 				}
 				if (interactive)
-					fprintf(stderr, "\n");
+					fputc('\n', stderr);
 				break;
 			}
 			if (parse_result) {

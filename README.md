@@ -23,12 +23,19 @@ Not necessarily trying to bring any unique features to the table, I just want to
 ## Command Parser
 
 - Handle arrow keys (nobody wants their arrow keys to print `^[[A`, they want them to do actions)
+- Readline (should help with above)
 - For loops
+- Read another line if the line ends with a `\`, then concatenate them together
 
 ## Behind the Scenes
 
 - Create `$XDG\_CONFIG\_HOME/mash/config.mash`?
 - Keep history loaded in memory to allow for `!` statements and possibly arrow keys (up/down).
+- Improve syntax error output messages
+- Remove builtin array (the format is too limiting)
+- Jobs
+- Expand aliases before execution (right after tokenizing)
+- Split commandExecute into multiple functions, and use those functions where appropriate to improve performance (subshells don't need to parse aliases because there won't be any!)
 
 ## Code Improvements
 

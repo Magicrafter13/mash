@@ -111,7 +111,7 @@ int aliasPrint(AliasMap *info, char *name, FILE *restrict stream) {
 	if (entry == NULL)
 		return 1;
 
-	fprintf(stream, "%s=%s\n", name, ((Alias*)entry->data)->str);
+	fprintf(stream, "%s=%s\n", name, ((Alias*)entry->data)->str); // TODO: print args as they are interpretted, not just the input string
 	return 0;
 }
 

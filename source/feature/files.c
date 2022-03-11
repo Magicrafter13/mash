@@ -39,7 +39,7 @@ FILE *open_config(struct passwd *PASSWD, char *arg0) {
 	FILE *file = fopen(config_path, "r");
 	free(config_path);
 	if (file == NULL && errno != ENOENT) // Ignore file not exist error
-		fprintf(stderr, "%s: %m\n", arg0);
+		fprintf(stderr, "%s: error reading config file: %m\n", arg0);
 	return file;
 }
 
@@ -72,7 +72,7 @@ FILE *open_history(struct passwd *PASSWD, char *arg0, Variables *vars) {
 				if (fprintf(stderr, "what\n"), mkdir(history_path, 0700) == 0)
 					failure = 0;*/
 			//if (failure) {
-				fprintf(stderr, "%s: %m\n", arg0);
+				fprintf(stderr, "%s: error opening state directory: %m\n", arg0);
 				fprintf(stderr, "Could not open directory at `%s', history not saved.\n", history_path);
 				free(history_path);
 				return NULL;
@@ -88,7 +88,7 @@ FILE *open_history(struct passwd *PASSWD, char *arg0, Variables *vars) {
 	// Open file
 	FILE *file = fopen(history_path, "a");
 	if (file == NULL) {
-		fprintf(stderr, "%s: %m\n", arg0);
+		fprintf(stderr, "%s: error reading history file: %m\n", arg0);
 		fprintf(stderr, "Could not open file at `%s', history not saved.\n", history_path);
 	}
 	if (env_histfile == NULL)
@@ -111,7 +111,7 @@ int mktmpfile(_Bool hidden, char **path, Variables *vars) {
 
 	int sub_stdout = mkstemp(template); // Create temporary file, which we will redirect the output to.
 	if (sub_stdout == -1) {
-		fprintf(stderr, "%m\n");
+		fprintf(stderr, "%m\n"); // TODO: print shell/script name
 		free(template);
 	}
 	else
@@ -228,16 +228,18 @@ void closeIOFiles(CmdIO *io) {
 		fclose(io->in_file);
 		io->in_file = NULL;
 	}
-	if (io->out_file != NULL && io->out_count > 0) {
-		rewind(io->out_file[io->out_count]);
-		char buffer[TMP_RW_BUFSIZE];
-		size_t bytes_read;
-		while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, io->out_file[io->out_count]), bytes_read > 0)
+	if (io->out_file != NULL) {
+		if (io->out_count > 0) {
+			rewind(io->out_file[io->out_count]);
+			char buffer[TMP_RW_BUFSIZE];
+			size_t bytes_read;
+			while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, io->out_file[io->out_count]), bytes_read > 0)
+				for (size_t i = 0; i < io->out_count; ++i)
+					fwrite(buffer, sizeof (char), bytes_read, io->out_file[i]);
 			for (size_t i = 0; i < io->out_count; ++i)
-				fwrite(buffer, sizeof (char), bytes_read, io->out_file[i]);
-		for (size_t i = 0; i <= io->out_count; ++i)
-			fclose(io->out_file[i]);
-
+				fclose(io->out_file[i]);
+		}
+		fclose(io->out_file[io->out_count]);
 		free(io->out_file);
 		io->out_file = NULL;
 	}

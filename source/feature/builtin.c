@@ -53,7 +53,7 @@ uint8_t export(size_t argc, void **ptr) {
 uint8_t help(size_t argc, void **ptr) {
 	//char **argv = (char**)ptr;
 
-	fprintf(stderr, "Not implemented yet.\n");
+	fputs("Not implemented yet.\n", stderr);
 	return 0;
 }
 
@@ -65,7 +65,7 @@ uint8_t cd(size_t argc, void **ptr) {
 			char *env_home = getenv("HOME"); // TODO: replace with getvar - I'd do this now, but I think I'll be retiring the builtins soon
 			if (env_home == NULL) {
 				// Step 1
-				fprintf(stderr, "HOME not set.\n");
+				fputs("HOME not set.\n", stderr);
 				return 1;
 			}
 			// Step 2

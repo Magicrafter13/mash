@@ -25,46 +25,38 @@ struct _thread_data {
 };
 
 void *threadInput(void *ptr) {
-	fprintf(stderr, "Started Input Thread\n");
 	ThreadData *data = ptr;
+	char buf[TMP_RW_BUFSIZE] = "";
 	while (data->run) {
-		char buf[TMP_RW_BUFSIZE] = {};
 		ssize_t bytes_read = read(data->read_fd, buf, TMP_RW_BUFSIZE);
 		if (bytes_read < 1) {
-			fprintf(stderr, "Input Thread 0 Read\n");
 			// If user used a file for input, also read from it
 			if (data->file != NULL)
 				while (bytes_read = fread(buf, sizeof (char), TMP_RW_BUFSIZE, data->file), bytes_read > 0)
-					fwrite(buf, sizeof (char), bytes_read, data->file);
+					write(data->write_fd, buf, bytes_read);
 			break;
 		}
-		fprintf(stderr, "Input Thread read %lu bytes: \033[32m<\033[0m%.*s\033[32m>\033[0m\n", bytes_read, (int)bytes_read, buf);
-		write(data->write_fd, buf, TMP_RW_BUFSIZE);
+		//fprintf(stderr, "threadInput got <%s> (%zd)\n", buf, bytes_read);
+		write(data->write_fd, buf, bytes_read);
 	}
 	close(data->read_fd);
 	close(data->write_fd);
-	fprintf(stderr, "Stopping Input Thread\n");
 	return NULL;
 }
 
 void *threadOutput(void *ptr) {
-	fprintf(stderr, "Started Output Thread\n");
 	ThreadData *data = ptr;
+	char buf[TMP_RW_BUFSIZE] = "";
 	while (data->run) {
-		char buf[TMP_RW_BUFSIZE];
 		ssize_t bytes_read = read(data->read_fd, buf, TMP_RW_BUFSIZE);
-		if (bytes_read < 1) {
-			fprintf(stderr, "Output Thread 0 Read\n");
+		if (bytes_read < 1)
 			break;
-		}
-		fprintf(stderr, "Output Thread read %lu bytes: \033[32m<\033[0m%.*s\033[32m>\033[0m\n", bytes_read, (int)bytes_read, buf);
-		write(data->write_fd, buf, TMP_RW_BUFSIZE);
+		write(data->write_fd, buf, bytes_read);
 		// If user used a file for output, also write to it
 		if (data->file != NULL)
 			fwrite(buf, sizeof (char), bytes_read, data->file);
 	}
 	close(data->write_fd);
-	fprintf(stderr, "Stopping Output Thread\n");
 	return NULL;
 }
 
@@ -171,8 +163,8 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			return 0;
 		}
 		fileout = cmd->c_io.out_file[cmd->c_io.out_count];
-		if (cmd->c_io.out_pipe)
-			cmd->c_next->c_io.in_file = fileout;
+		/*if (cmd->c_io.out_pipe)
+			cmd->c_next->c_io.in_file = fileout;*/
 	}
 	else if (cmd->c_parent != NULL && cmd->c_parent->c_io.out_count > 0)
 		fileout = getParentOutputFile(cmd);
@@ -200,7 +192,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 
 			int ret = setvar(vars, cmd->c_argv[0].str, full_arg, 0);
 			if (ret == -1) {
-				fprintf(stderr, "%s: %m\n", source->argv[0]);
+				fprintf(stderr, "%s: set variable: %m\n", source->argv[0]);
 				*cmd_exit = 1;
 			}
 			if (cmd->c_argv[1].type != ARG_NULL)
@@ -229,10 +221,10 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	e_argv[cmd->c_argc] = NULL;
 
 #ifdef DEBUG
-	fprintf(stderr, "Execing:\n");
+	fputs("Execing:\n", stderr);
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		fprintf(stderr, "%s ", e_argv[i]);
-	fprintf(stderr, "\n");
+	fputc('\n', stderr);
 #endif
 
 	// Check for alias
@@ -351,7 +343,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 		if (script != NULL)
 			*_source = sourceAdd(source, script, cmd->c_argc - 1, &e_argv[1]);
 		else {
-			fprintf(stderr, "%m\n");
+			fprintf(stderr, "%s: .: %m\n", source->argv[0]);
 			*cmd_exit = 1;
 		}
 		for (size_t v = 0; v < cmd->c_argc; ++v)
@@ -363,8 +355,15 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	if (!strcmp(e_argv[0], "read")) {
 		*cmd_exit = 0;
 		char *value = NULL;
-		size_t size = 0;
-		size_t bytes_read = getline(&value, &size, filein == NULL ? stdin : filein);
+		size_t size = 0, bytes_read;
+		if (filein == NULL)
+			bytes_read = getline(&value, &size, stdin);
+		else { // Cursed code to keep FILE position and fd offset in sync...
+			off_t offset = lseek(fileno(filein), 0, SEEK_CUR);
+			bytes_read = getline(&value, &size, filein);
+			if (bytes_read > 0)
+				lseek(fileno(filein), offset + bytes_read, SEEK_SET);
+		}
 		if (bytes_read == -1) {
 			if (filein == NULL)
 				clearerr(stdin);
@@ -376,7 +375,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			if (e_argv[1] != NULL) {
 				if (setvar(vars, e_argv[1], value, 0) == -1) {
 					*cmd_exit = errno;
-					fprintf(stderr, "%m\n");
+					fprintf(stderr, "%s: read: %m\n", source->argv[0]);
 				}
 			}
 		}
@@ -405,7 +404,6 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
 				return -1;
 			}
-			fprintf(stderr, "Creating Thread for Input\n");
 			data_in = (ThreadData){ .read_fd = fds[0], .write_fd = pin[1], .run = 1, .file = filein };
 			pthread_create(&thread_in, NULL, threadInput, &data_in);
 		}
@@ -456,7 +454,6 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
 				return -1;
 			}
-			fprintf(stderr, "Creating Thread for Output\n");
 			data_out = (ThreadData){ .read_fd = pout[0], .write_fd = fds[1], .run = 1, .file = fileout };
 			pthread_create(&thread_out, NULL, threadOutput, &data_out);
 		}
@@ -466,6 +463,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 
 		// Run next command
 		int res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit, builtins);
+		closeIOFiles(&cmd->c_next->c_io);
 		if (fileout != NULL) {
 			//data_out.run = 0;
 			pthread_join(thread_out, NULL);
@@ -486,6 +484,13 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			pthread_join(thread_in, NULL);
 		}
 		close(pin[0]);
+	}
+	if (filein != NULL) { // Cursed code to keep FILE position and fd offset in sync...
+		ssize_t offset = lseek(fileno(filein), 0, SEEK_CUR);
+		//fprintf(stderr, "FILE fd offset is now %zi (stream %ld)\n", offset, ftell(filein));
+		fseek(filein, offset, SEEK_SET);
+		fflush(filein);
+		//fprintf(stderr, "FILE fd offset is now %zi (stream %ld)\n", offset, ftell(filein));
 	}
 	// Set exit status (unless we piped, as the next programs exit status is used)
 	if (!cmd->c_io.out_pipe)
@@ -512,7 +517,7 @@ int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint
 			}
 			if (!strcmp(arg.str, "RANDOM")) {
 				char number[12];
-				sprintf(number, "%lu", random());
+				sprintf(number, "%ld", random());
 				*str = strdup(number);
 				return 0;
 			}
