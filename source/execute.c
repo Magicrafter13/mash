@@ -76,9 +76,12 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			}
 			for (;;) {
 				// Execute test commands
-				if (commandExecute(cmd->c_cmds, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
-					closeIOFiles(&cmd->c_io);
-					return -1;
+				for (Command *cur = cmd->c_cmds; cur != NULL; cur = cur->c_next) {
+					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
+						closeIOFiles(&cur->c_io);
+						return -1;
+					}
+					closeIOFiles(&cur->c_io);
 				}
 				// Break if last command had non-zero exit status
 				if (*cmd_exit != 0)
@@ -106,9 +109,12 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			if (cmd->c_cmds == NULL)
 				*cmd_exit = 0;
 			else {
-				if (commandExecute(cmd->c_cmds, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
-					closeIOFiles(&cmd->c_io);
-					return -1;
+				for (Command *cur = cmd->c_cmds; cur != NULL; cur = cur->c_next) {
+					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
+							closeIOFiles(&cur->c_io);
+							return -1;
+					}
+					closeIOFiles(&cur->c_io);
 				}
 			}
 			// Execute next set of commands based on exit status
