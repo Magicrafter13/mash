@@ -259,13 +259,10 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				}
 			}
 		}
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
-		return 0;
 	}
 
 	// Check for unalias
-	if (!strcmp(e_argv[0], "unalias")) {
+	else if (!strcmp(e_argv[0], "unalias")) {
 		for (size_t v = 1; v < cmd->c_argc; ++v) {
 			if (!aliasRemove(aliases, e_argv[v])) {
 				fprintf(stderr, "No such alias `%s'\n", e_argv[v]);
@@ -278,7 +275,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	}
 
 	// Exit shell
-	if (!strcmp(e_argv[0], "exit")) {
+	else if (!strcmp(e_argv[0], "exit")) {
 		if (cmd->c_argc > 1) {
 			int temp;
 			sscanf(e_argv[1], "%u", &temp);
@@ -298,19 +295,15 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	}
 
 	// Execute builtin
-	if (suftreeHas(builtins, e_argv[0], &cmd_builtin)) {
+	else if (suftreeHas(builtins, e_argv[0], &cmd_builtin)) {
 #ifdef DEFINE
 		fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
 #endif
 		BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc, (void**)e_argv);
-
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
-		return 0;
 	}
 
 	// Export variable
-	if (!strcmp(e_argv[0], "export")) {
+	else if (!strcmp(e_argv[0], "export")) {
 		if (cmd->c_argc > 1) {
 			char *equal_addr = strchrnul(e_argv[1], '='), *value = NULL;
 			if (equal_addr[0] == '=') {
@@ -324,27 +317,20 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 		}
 		else
 			*cmd_exit = 1;
-
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
-		return 0;
 	}
 
 	// Check for unset
-	if (!strcmp(e_argv[0], "unset")) {
+	else if (!strcmp(e_argv[0], "unset")) {
 		for (size_t i = 1; e_argv[i] != NULL; ++i) {
 			if (unsetvar(vars, e_argv[i]) == -1) {
 				fprintf(stderr, "%s: unset: %m\n", source->argv[0]);
 				*cmd_exit = 1;
 			}
 		}
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
-		return 0;
 	}
 
 	// Check for dot (source file)
-	if (!strcmp(e_argv[0], ".")) {
+	else if (!strcmp(e_argv[0], ".")) {
 		FILE *script = fopen(e_argv[1], "r");
 		if (script != NULL)
 			*_source = sourceAdd(source, script, cmd->c_argc - 1, &e_argv[1]);
@@ -352,13 +338,10 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			fprintf(stderr, "%s: .: %m\n", source->argv[0]);
 			*cmd_exit = 1;
 		}
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
-		return 0;
 	}
 
 	// Check for read
-	if (!strcmp(e_argv[0], "read")) {
+	else if (!strcmp(e_argv[0], "read")) {
 		*cmd_exit = 0;
 		char *value = NULL;
 		size_t size = 0, bytes_read;
@@ -386,142 +369,152 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			}
 		}
 		free(value);
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
-		return 0;
 	}
 
-	// Check for exec
-	if (!strcmp(e_argv[0], "exec")) {
-		if (cmd->c_argc == 1) {
-			fprintf(stderr, "%s: exec: requires at least one argument\n", source->argv[0]);
-			for (size_t v = 0; v < cmd->c_argc; ++v)
-				free(e_argv[v]);
-			*cmd_exit = 1;
-			return 0;
+	// Shift args
+	else if (!strcmp(e_argv[0], "shift")) {
+		int amount = 1;
+		if (cmd->c_argc > 1) {
+			int left, right;
+			sscanf(e_argv[1], "%n%d%n", &left, &amount, &right);
 		}
-		char *exec = e_argv[0];
-		for (size_t i = 0; i < cmd->c_argc; ++i)
-			e_argv[i] = e_argv[i + 1];
-		e_argv[cmd->c_argc] = exec;
+		*cmd_exit = sourceShift(source, amount);
 	}
 
-	// Setup pipe
-	int pin[2] = { fds[0], -1 }, pout[2] = { -1, -1 };
-	if (cmd->c_io.out_pipe) {
-		if (pipe(pout) == -1) {
-			fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
-			return -1;
-		}
-	}
-
-	// If this command is getting piped into by another
-	pthread_t thread_in;
-	ThreadData data_in;
-	if (cmd->c_io.in_pipe) {
-		// If the user is also redirecting the input from file(s), start a thread to read from the pipe, and then read from the files
-		if (filein != NULL) {
-			if (pipe(pin) == -1) {
-				fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
-				return -1;
+	// Regular command
+	else {
+		// Check for exec
+		if (!strcmp(e_argv[0], "exec")) { // TODO: don't exit if exec failed
+			if (cmd->c_argc == 1) {
+				fprintf(stderr, "%s: exec: requires at least one argument\n", source->argv[0]);
+				for (size_t v = 0; v < cmd->c_argc; ++v)
+					free(e_argv[v]);
+				*cmd_exit = 1;
+				return 0;
 			}
-			data_in = (ThreadData){ .read_fd = fds[0], .write_fd = pin[1], .run = 1, .file = filein };
-			pthread_create(&thread_in, NULL, threadInput, &data_in);
+			char *exec = e_argv[0];
+			for (size_t i = 0; i < cmd->c_argc; ++i)
+				e_argv[i] = e_argv[i + 1];
+			e_argv[cmd->c_argc] = exec;
 		}
-	}
 
-	// Execute regular command
-	cmd_pid = fork();
-	// Forked process will execute the command
-	if (cmd_pid == 0) {
-		// Close unused pipe ends, or change stdin and stdout if user redirected them
-		if (cmd->c_io.in_pipe) {
-			close(fds[1]);
-			if (filein != NULL)
-				close(pin[1]);
-			dup2(pin[0], STDIN_FILENO); // Read from pin
-		}
-		else if (filein != NULL)
-			dup2(fileno(filein), STDIN_FILENO);
+		// Setup pipe
+		int pin[2] = { fds[0], -1 }, pout[2] = { -1, -1 };
 		if (cmd->c_io.out_pipe) {
-			close(pout[0]);
-			dup2(pout[1], STDOUT_FILENO); // Write to pout
-		}
-		else if (fileout != NULL)
-			dup2(fileno(fileout), STDOUT_FILENO);
-
-		// TODO consider manual search of the path
-		execvp(e_argv[0], e_argv);
-		fprintf(stderr, "%s: %s: %m\n", source->argv[0], e_argv[0]);
-
-		// Free memory (I wish this wasn't all duplicated in the child to begin with...)
-		for (size_t i = 0; i < cmd->c_argc; ++i)
-			free(e_argv[i]);
-		*history_pool = NULL;
-
-		*cmd_exit = 1;
-		return -1;
-	}
-
-	// If this command is being piped into another
-	if (cmd->c_io.out_pipe) {
-		close(pout[1]);
-
-		// If the user is also redirecting the output to file(s), start a thread to read from the pipe and send to the next command, and to the files
-		pthread_t thread_out;
-		ThreadData data_out;
-		if (fileout != NULL) {
-			if (pipe(fds) == -1) {
+			if (pipe(pout) == -1) {
 				fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
 				return -1;
 			}
-			data_out = (ThreadData){ .read_fd = pout[0], .write_fd = fds[1], .run = 1, .file = fileout };
-			pthread_create(&thread_out, NULL, threadOutput, &data_out);
 		}
-		else
-			fds[0] = pout[0];
-		int temp[2] = { fds[0], fds[1] };
 
-		// Run next command
-		int res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit, builtins);
-		closeIOFiles(&cmd->c_next->c_io);
-		if (fileout != NULL) {
-			//data_out.run = 0;
-			pthread_join(thread_out, NULL);
-			close(temp[0]);
-			close(temp[1]);
+		// If this command is getting piped into by another
+		pthread_t thread_in;
+		ThreadData data_in;
+		if (cmd->c_io.in_pipe) {
+			// If the user is also redirecting the input from file(s), start a thread to read from the pipe, and then read from the files
+			if (filein != NULL) {
+				if (pipe(pin) == -1) {
+					fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
+					return -1;
+				}
+				data_in = (ThreadData){ .read_fd = fds[0], .write_fd = pin[1], .run = 1, .file = filein };
+				pthread_create(&thread_in, NULL, threadInput, &data_in);
+			}
 		}
-		close(pout[0]);
-		if (res == -1)
+
+		// Execute regular command
+		cmd_pid = fork();
+		// Forked process will execute the command
+		if (cmd_pid == 0) {
+			// Close unused pipe ends, or change stdin and stdout if user redirected them
+			if (cmd->c_io.in_pipe) {
+				close(fds[1]);
+				if (filein != NULL)
+					close(pin[1]);
+				dup2(pin[0], STDIN_FILENO); // Read from pin
+			}
+			else if (filein != NULL)
+				dup2(fileno(filein), STDIN_FILENO);
+			if (cmd->c_io.out_pipe) {
+				close(pout[0]);
+				dup2(pout[1], STDOUT_FILENO); // Write to pout
+			}
+			else if (fileout != NULL)
+				dup2(fileno(fileout), STDOUT_FILENO);
+
+			// TODO consider manual search of the path
+			execvp(e_argv[0], e_argv);
+			fprintf(stderr, "%s: %s: %m\n", source->argv[0], e_argv[0]);
+
+			// Free memory (I wish this wasn't all duplicated in the child to begin with...)
+			for (size_t i = 0; i < cmd->c_argc; ++i)
+				free(e_argv[i]);
+			*history_pool = NULL;
+
+			*cmd_exit = 1;
 			return -1;
-	}
-
-	// While the main process waits for the child to exit
-	int cmd_stat;
-	waitpid(cmd_pid, &cmd_stat, 0);
-	if (cmd->c_io.in_pipe) {
-		if (filein != NULL) {
-			data_in.run = 0;
-			pthread_join(thread_in, NULL);
 		}
-		close(pin[0]);
-	}
-	if (filein != NULL) { // Cursed code to keep FILE position and fd offset in sync...
-		ssize_t offset = lseek(fileno(filein), 0, SEEK_CUR);
-		//fprintf(stderr, "FILE fd offset is now %zi (stream %ld)\n", offset, ftell(filein));
-		fseek(filein, offset, SEEK_SET);
-		fflush(filein);
-		//fprintf(stderr, "FILE fd offset is now %zi (stream %ld)\n", offset, ftell(filein));
-	}
-	// Set exit status (unless we piped, as the next programs exit status is used)
-	if (!cmd->c_io.out_pipe)
-		*cmd_exit = WEXITSTATUS(cmd_stat);
-	// Return -1 if command was exec
-	if (e_argv[cmd->c_argc] != NULL) {
-		for (size_t i = 0; i < cmd->c_argc - 1; ++i)
-			free(e_argv[i]);
-		free(e_argv[cmd->c_argc]);
-		return -1;
+
+		// If this command is being piped into another
+		if (cmd->c_io.out_pipe) {
+			close(pout[1]);
+
+			// If the user is also redirecting the output to file(s), start a thread to read from the pipe and send to the next command, and to the files
+			pthread_t thread_out;
+			ThreadData data_out;
+			if (fileout != NULL) {
+				if (pipe(fds) == -1) {
+					fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
+					return -1;
+				}
+				data_out = (ThreadData){ .read_fd = pout[0], .write_fd = fds[1], .run = 1, .file = fileout };
+				pthread_create(&thread_out, NULL, threadOutput, &data_out);
+			}
+			else
+				fds[0] = pout[0];
+			int temp[2] = { fds[0], fds[1] };
+
+			// Run next command
+			int res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit, builtins);
+			closeIOFiles(&cmd->c_next->c_io);
+			if (fileout != NULL) {
+				//data_out.run = 0;
+				pthread_join(thread_out, NULL);
+				close(temp[0]);
+				close(temp[1]);
+			}
+			close(pout[0]);
+			if (res == -1)
+				return -1;
+		}
+
+		// While the main process waits for the child to exit
+		int cmd_stat;
+		waitpid(cmd_pid, &cmd_stat, 0);
+		if (cmd->c_io.in_pipe) {
+			if (filein != NULL) {
+				data_in.run = 0;
+				pthread_join(thread_in, NULL);
+			}
+			close(pin[0]);
+		}
+		if (filein != NULL) { // Cursed code to keep FILE position and fd offset in sync...
+			ssize_t offset = lseek(fileno(filein), 0, SEEK_CUR);
+			//fprintf(stderr, "FILE fd offset is now %zi (stream %ld)\n", offset, ftell(filein));
+			fseek(filein, offset, SEEK_SET);
+			fflush(filein);
+			//fprintf(stderr, "FILE fd offset is now %zi (stream %ld)\n", offset, ftell(filein));
+		}
+		// Set exit status (unless we piped, as the next programs exit status is used)
+		if (!cmd->c_io.out_pipe)
+			*cmd_exit = WEXITSTATUS(cmd_stat);
+		// Return -1 if command was exec
+		if (e_argv[cmd->c_argc] != NULL) {
+			for (size_t i = 0; i < cmd->c_argc - 1; ++i)
+				free(e_argv[i]);
+			free(e_argv[cmd->c_argc]);
+			return -1;
+		}
 	}
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		free(e_argv[i]);
@@ -529,8 +522,6 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 }
 
 int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint8_t *cmd_exit) {
-	int argc = source->argc;
-	char **argv = source->argv;
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
 		case ARG_QUOTED_STRING:
@@ -540,7 +531,7 @@ int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint
 			if (arg.str[0] >= '0' && arg.str[0] <= '9') {
 				unsigned position;
 				sscanf(arg.str, "%u", &position);
-				*str = strdup(position >= argc ? "" : argv[position]);
+				*str = strdup(position >= source->argc ? "" : source->argv[position]);
 				return 0;
 			}
 			if (!strcmp(arg.str, "RANDOM")) {
@@ -558,6 +549,12 @@ int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint
 			if (!strcmp(arg.str, "$")) {
 				char number[21];
 				sprintf(number, "%ld", (long)getpid());
+				*str = strdup(number);
+				return 0;
+			}
+			if (!strcmp(arg.str, "#")) {
+				char number[8];
+				sprintf(number, "%u", (unsigned)source->argc - 1);
 				*str = strdup(number);
 				return 0;
 			}

@@ -548,6 +548,7 @@ ssize_t lengthDollarExp(char *buf) {
 		switch (c) {
 			case '$':
 			case '?':
+			case '#':
 				return l > 1 ? l : 2;
 			case '(':
 				if (l > 1)

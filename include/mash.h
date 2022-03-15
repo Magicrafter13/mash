@@ -77,6 +77,7 @@ void sourceSet(Source*, FILE*restrict, size_t, char**);
 Source *sourceAdd(Source*, FILE*restrict, size_t, char**);
 Source *sourceClose(Source*);
 void sourceFree(Source*);
+int sourceShift(Source*, int);
 
 /*
  * Built-ins

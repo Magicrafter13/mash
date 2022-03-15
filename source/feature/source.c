@@ -84,3 +84,24 @@ void sourceFree(Source *source) {
 	freeSingleSource(source);
 	free(source);
 }
+
+int sourceShift(Source *source, int amount) {
+	if (amount < 0) {
+		fprintf(stderr, "%s: shift: amount cannot be negative\n", source->argv[0]);
+		return 1;
+	}
+	if (amount >= source->argc) {
+		fprintf(stderr, "%s: shift: amount must be <= $#\n", source->argv[0]);
+		return 1;
+	}
+	if (amount == 0)
+		return 0;
+	// Free arguments being "shifted out"
+	for (size_t i = 0; i < amount; ++i)
+		free(source->argv[i + 1]);
+	// Shift remaining arguments
+	for (size_t i = 0; i < source->argc - amount - 1; ++i)
+		source->argv[i + 1] = source->argv[amount + i + 1];
+	source->argc -= amount;
+	return 0;
+}

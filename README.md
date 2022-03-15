@@ -8,10 +8,11 @@ Not necessarily trying to bring any unique features to the table, I just want to
 ## Commands/Builtins
 - Change directory with `cd`
 - Set environment variables (or move shell variables to the environment) with `export`
-- Flow control: `if`, and `while`
+- Flow control: `if`, and `while` (supports multiple commands in conditional)
 - Aliases: `alias` and `unalias`
 - Removing environment variables with `unset`
 - POSIX `exec` (only for executing commands, does not have file descriptor functionality)
+- `shift` to shift out positional parameters (arguments) - most useful in scripts
 
 ## Others
 - Run scripts (can be used as a shebang)
