@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L // fileno, strdup
 #define _DEFAULT_SOURCE // srandom
+#include "command.h"
 #include "mash.h"
 #include "suftree.h"
 #include <errno.h>

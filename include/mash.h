@@ -1,7 +1,7 @@
 #ifndef MASH_H
 #define MASH_H
 
-#include "command.h"
+#include "command_structures.h"
 #include "hashTable.h"
 #include "suftree.h"
 #include <pwd.h>
