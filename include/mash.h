@@ -1,7 +1,7 @@
 #ifndef MASH_H
 #define MASH_H
 
-#include "command_structures.h"
+#include "command.h"
 #include "hashTable.h"
 #include "suftree.h"
 #include <pwd.h>
@@ -19,19 +19,6 @@ struct _cmd_source {
 	size_t argc;
 	char **argv;
 	Source *prev, *next;
-};
-
-typedef struct _alias_map AliasMap;
-struct _alias_map {
-	unsigned long long buckets;
-	hashTable *map;
-};
-
-typedef struct _alias Alias;
-struct _alias {
-	char *str;
-	int argc;
-	CmdArg *args;
 };
 
 typedef struct _shell_var Variables;
@@ -92,18 +79,6 @@ uint8_t cd(size_t, void**);
 extern char *const BUILTIN[BUILTIN_COUNT];
 
 extern uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**);
-
-/*
- * Aliases
- */
-
-AliasMap *aliasInit();
-void aliasFree(AliasMap*);
-void aliasResolve(AliasMap*, Command*);
-Alias *aliasAdd(AliasMap*, char*, char*);
-int aliasRemove(AliasMap*, char*);
-int aliasPrint(AliasMap*, char*, FILE *restrict);
-void aliasList(AliasMap*, FILE *restrict);
 
 /*
  * Environment/Shell Variables

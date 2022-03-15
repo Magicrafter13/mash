@@ -1,7 +1,6 @@
 #define _POSIX_C_SOURCE 200809L // strdup
 #include "command.h"
 #include "compatibility.h" // For reallocarray
-#include "mash.h"
 #include <string.h>
 
 AliasMap *aliasInit() {
