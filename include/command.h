@@ -31,7 +31,6 @@ struct _cmd_io {
 };
 
 enum _cmd_type {
-	CMD_FREED,   // Type to ignore in commandFree - useful for loops where child commands will point back to the loop they are in
 	CMD_EMPTY,   // Command to ignore (comments, blank lines, etc)
 	CMD_REGULAR,
 	CMD_WHILE, CMD_DO, CMD_DONE,
@@ -54,8 +53,6 @@ struct _command {
 };
 
 Command *commandInit();
-
-int commandRead(Command*, FILE*restrict, FILE*restrict);
 
 int commandParse(Command*, FILE*restrict, FILE*restrict);
 

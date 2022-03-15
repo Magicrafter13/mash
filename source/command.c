@@ -3,13 +3,6 @@
 #include "compatibility.h"
 #include <string.h>
 
-size_t shiftArg(Command *cmd) {
-	freeArg(cmd->c_argv[0]);
-	for (size_t i = 1; i < cmd->c_argc; ++i)
-		cmd->c_argv[i - 1] = cmd->c_argv[i];
-	return --cmd->c_argc;
-}
-
 #define dupSpecialCommand(cmd) { \
 	Command *new_loc = commandInit(); \
 	*new_loc = *cmd; \
@@ -19,6 +12,13 @@ size_t shiftArg(Command *cmd) {
 	cmd->c_size = new_loc->c_size; \
 	cmd->c_buf = new_loc->c_buf; \
 	cmd->c_next = new_loc; \
+}
+
+size_t shiftArg(Command *cmd) {
+	freeArg(cmd->c_argv[0]);
+	for (size_t i = 1; i < cmd->c_argc; ++i)
+		cmd->c_argv[i - 1] = cmd->c_argv[i];
+	return --cmd->c_argc;
 }
 
 int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
@@ -415,7 +415,6 @@ int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 	if (ostream != NULL) {
 		fputs(cmd->c_buf, ostream);
-		//fwrite(cmd->c_buf, sizeof (char), cmd->c_len, ostream);
 		fflush(ostream);
 	}
 
@@ -602,6 +601,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 	 * done: indicates we've finished parsing this command (there may be more after it)
 	 * whitespace: whether or not the last character was whitespace
 	 * need_file: whether we are waiting for a filename argument (for < or >)
+	 * has_pipe: command ends with a pipe, so we need to create the next command and parse it
 	 */
 	size_t end = 0, argc = 0, input_count = 0, output_count = 0;
 	_Bool done = 0, whitespace = 1, need_file = 0, has_pipe = 0;
@@ -625,7 +625,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 					return 0;
 				done = 1;
 				--end;
-			case ' ': // can't use delim_char...
+			case ' ':
 			case '\t':
 			case '\n':
 				if (!whitespace) {
@@ -818,7 +818,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 					parse_regular = 1;
 			case '\0':
 				break;
-			case ' ': // can't use delim_char...
+			case ' ':
 			case '\t':
 			case '\n':
 				if (!inDoubleQuote) {
@@ -934,9 +934,6 @@ CmdArg argdup(CmdArg a) {
 }
 
 void commandFree(Command *cmd) {
-	// Stop recursive calls to commandFree from causing a double free
-	cmd->c_type = CMD_FREED;
-
 	if (cmd->c_argv != NULL) {
 		for (size_t i = 0; i < cmd->c_argc; ++i)
 			freeArg(cmd->c_argv[i]);
