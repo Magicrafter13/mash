@@ -2,7 +2,6 @@
 #define _DEFAULT_SOURCE // srandom
 #include "command.h"
 #include "mash.h"
-#include "suftree.h"
 #include <errno.h>
 #include <limits.h>
 #include <pwd.h>
@@ -128,7 +127,7 @@ int main(int argc, char *argv[]) {
 								fprintf(stderr, "%s: PROMPT_COMMAND: syntax error, command not complete\n", source->argv[0]);
 							break;
 						case 0:
-							if (commandExecute(&promptcmd, aliases, &source, vars, &history_pool, &cmd_exit) == -1)
+							if (commandExecute(&promptcmd, aliases, &source, vars, &history_pool, &cmd_exit) != CSIG_DONE)
 								isChild = 1;
 							break;
 						default:
@@ -177,7 +176,26 @@ int main(int argc, char *argv[]) {
 		/*
 		 * Execute command
 		 */
-		if (commandExecute(cmd, aliases, &source, vars, &history_pool, &cmd_exit) == -1)
+		CmdSignal res = commandExecute(cmd, aliases, &source, vars, &history_pool, &cmd_exit);
+		_Bool brk = 0;
+		switch (res) {
+			case CSIG_CONTINUE:
+				cmd_exit = 1;
+				fprintf(stderr, "%s: continue: not in a loop\n", source->argv[0]);
+				break;
+			case CSIG_BREAK:
+				cmd_exit = 1;
+				fprintf(stderr, "%s: break: not in a loop\n", source->argv[0]);
+				break;
+			case CSIG_DONE:
+				break;
+			case CSIG_EXEC:
+				// TODO handle exec fail
+			case CSIG_EXIT:
+				brk = 1;
+				break;
+		}
+		if (brk)
 			break;
 		while (cmd->c_io.out_pipe)
 			cmd = cmd->c_next;

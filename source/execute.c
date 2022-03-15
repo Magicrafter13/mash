@@ -60,91 +60,150 @@ void *threadOutput(void *ptr) {
 	return NULL;
 }
 
-int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables *vars, FILE **history_pool, uint8_t *cmd_exit) {
+CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables *vars, FILE **history_pool, uint8_t *cmd_exit) {
 	// Empty/blank command, or skippable command (then, else, do)
 	switch (cmd->c_type) {
 		case CMD_WHILE:
 			// Open IO files
 			switch (openIOFiles(&cmd->c_io, *_source, vars, cmd_exit)) {
 				case -1:
-					return -1;
+					return CSIG_EXIT;
 				case 0:
 					break;
 				default:
 					*cmd_exit = 1;
-					return 0;
+					return CSIG_DONE;
 			}
 			for (;;) {
 				// Execute test commands
-				for (Command *cur = cmd->c_cmds; cur != NULL; cur = cur->c_next) {
-					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit) == -1) {
-						closeIOFiles(&cur->c_io);
-						return -1;
-					}
+				_Bool cont = 0, brk = 0;
+				for (Command *cur = cmd->c_cmds; !cont && cur != NULL; cur = cur->c_next) {
+					CmdSignal res = commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit);
 					closeIOFiles(&cur->c_io);
+					switch (res) {
+						case CSIG_BREAK:
+							brk = 1;
+						case CSIG_CONTINUE:
+							cont = 1;
+						case CSIG_DONE:
+							break;
+						case CSIG_EXEC:
+							// TODO handle EXEC fail
+						case CSIG_EXIT:
+							return CSIG_EXIT;
+					}
+				}
+				if (cont) {
+					if (brk) {
+						*cmd_exit = 0;
+						break;
+					}
+					continue;
 				}
 				// Break if last command had non-zero exit status
 				if (*cmd_exit != 0)
 					break;
 				// Otherwise run body commands
-				if (commandExecute(cmd->c_if_true, aliases, _source, vars, history_pool, cmd_exit) == -1) {
-					closeIOFiles(&cmd->c_io);
-					return -1;
+				CmdSignal res = commandExecute(cmd->c_if_true, aliases, _source, vars, history_pool, cmd_exit);
+				switch (res) {
+					case CSIG_BREAK:
+						brk = 1;
+					case CSIG_CONTINUE:
+					case CSIG_DONE:
+						break;
+					case CSIG_EXEC:
+						// TODO handle EXEC fail
+					case CSIG_EXIT:
+						closeIOFiles(&cmd->c_io);
+						return CSIG_EXIT;
+				}
+				if (brk) {
+					*cmd_exit = 0;
+					break;
 				}
 			}
 			closeIOFiles(&cmd->c_io);
-			return 0;
+			return CSIG_DONE;
 		case CMD_IF:
 			// Open IO files
 			switch (openIOFiles(&cmd->c_io, *_source, vars, cmd_exit)) {
 				case -1:
-					return -1;
+					return CSIG_EXIT;
 				case 0:
 					break;
 				default:
 					*cmd_exit = 1;
-					return 0;
+					return CSIG_DONE;
 			}
 			// Execute test commands
 			if (cmd->c_cmds == NULL)
 				*cmd_exit = 0;
 			else {
 				for (Command *cur = cmd->c_cmds; cur != NULL; cur = cur->c_next) {
-					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit) == -1) {
-							closeIOFiles(&cur->c_io);
-							return -1;
-					}
+					CmdSignal res = commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit);
 					closeIOFiles(&cur->c_io);
+					switch (res) {
+						case CSIG_DONE:
+							break;
+						case CSIG_EXEC:
+							// TODO handle exec fail
+							res = CSIG_EXIT;
+						case CSIG_EXIT:
+						case CSIG_CONTINUE:
+						case CSIG_BREAK:
+							closeIOFiles(&cmd->c_io);
+							return res;
+					}
 				}
 			}
 			// Execute next set of commands based on exit status
 			Command *next = *cmd_exit == 0 ? cmd->c_if_true : cmd->c_if_false;
 			if (next != NULL) {
-				if (commandExecute(*cmd_exit == 0 ? cmd->c_if_true : cmd->c_if_false, aliases, _source, vars, history_pool, cmd_exit) == -1) {
-					closeIOFiles(&cmd->c_io);
-					return -1;
+				CmdSignal res = commandExecute(next, aliases, _source, vars, history_pool, cmd_exit);
+				switch (res) {
+					case CSIG_DONE:
+						break;
+					case CSIG_EXEC:
+						// TODO handle exec fail
+						res = CSIG_EXIT;
+					case CSIG_EXIT:
+					case CSIG_CONTINUE:
+					case CSIG_BREAK:
+						closeIOFiles(&cmd->c_io);
+						return res;
 				}
 			}
 			closeIOFiles(&cmd->c_io);
-			return 0;
+			return CSIG_DONE;
 		case CMD_DO:
 		case CMD_THEN:
 		case CMD_ELSE:
 			for (Command *cur = cmd->c_next; cur != NULL; cur = cur->c_next) {
-				if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit) == -1)
-					return -1;
+				CmdSignal res = commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit);
+				switch (res) {
+					case CSIG_DONE:
+						break;
+					case CSIG_EXEC:
+						// TODO handle exec fail
+						res = CSIG_EXIT;
+					case CSIG_EXIT:
+					case CSIG_CONTINUE:
+					case CSIG_BREAK:
+						closeIOFiles(&cur->c_io);
+						return res;
+				}
 				while (cur->c_io.out_pipe)
 					cur = cur->c_next;
 			}
-			return 0;
+			return CSIG_DONE;
 		case CMD_DONE:
 		case CMD_FI:
 			*cmd_exit = 0;
 		case CMD_EMPTY:
-			return 0;
+			return CSIG_DONE;
 		default:
 			if (cmd->c_argc == 0) // TODO: do we need to check argc...?
-				return 0;
+				return CSIG_DONE;
 	}
 
 	// Set (or create) input and output files
@@ -152,10 +211,10 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	// Get this command's files if applicable, otherwise parent's (or none)
 	if (cmd->c_io.in_count > 0) {
 		if (openInputFiles(&cmd->c_io, *_source, vars, cmd_exit) == -1)
-			return -1;
+			return CSIG_EXIT;
 		if (cmd->c_io.in_file == NULL) {
 			*cmd_exit = 1;
-			return 0;
+			return CSIG_DONE;
 		}
 		filein = cmd->c_io.in_file;
 	}
@@ -163,10 +222,10 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 		filein = getParentInputFile(cmd);
 	if (cmd->c_io.out_count > 0 || cmd->c_io.out_file) {
 		if (openOutputFiles(&cmd->c_io, *_source, vars, cmd_exit) == -1)
-			return -1;
+			return CSIG_EXIT;
 		if (cmd->c_io.out_file == NULL) {
 			*cmd_exit = 1;
-			return 0;
+			return CSIG_DONE;
 		}
 		fileout = cmd->c_io.out_file[cmd->c_io.out_count];
 		/*if (cmd->c_io.out_pipe)
@@ -187,10 +246,10 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			if (cmd->c_argv[1].type != ARG_NULL) {
 				if (expandArgument(&full_arg, cmd->c_argv[1], source, vars, cmd_exit) == -1) {
 					*history_pool = NULL;
-					return -1;
+					return CSIG_EXIT;
 				}
 				if (full_arg == NULL)
-					return 0;
+					return CSIG_DONE;
 			}
 
 			int ret = setvar(vars, cmd->c_argv[0].str, full_arg, 0);
@@ -200,7 +259,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			}
 			if (cmd->c_argv[1].type != ARG_NULL)
 				free(full_arg);
-			return 0;
+			return CSIG_DONE;
 		}
 	}
 
@@ -212,12 +271,12 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			for (size_t e = 0; e < i; ++e)
 				free(e_argv[e]);
 			*history_pool = NULL;
-			return -1;
+			return CSIG_EXIT;
 		}
 		if (full_arg == NULL) {
 			for (size_t e = 0; e < i; ++e)
 				free(e_argv[e]);
-			return 0;
+			return CSIG_DONE;
 		}
 		e_argv[i] = full_arg;
 	}
@@ -230,8 +289,24 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	fputc('\n', stderr);
 #endif
 
+	// Continue
+	if (!strcmp(e_argv[0], "continue")) {
+		for (size_t i = 0; i < cmd->c_argc; ++i)
+			free(e_argv[i]);
+		*cmd_exit = 0;
+		return CSIG_CONTINUE;
+	}
+
+	// Break
+	else if (!strcmp(e_argv[0], "break")) {
+		for (size_t i = 0; i < cmd->c_argc; ++i)
+			free(e_argv[i]);
+		*cmd_exit = 0;
+		return CSIG_BREAK;
+	}
+
 	// Check for alias
-	if (!strcmp(e_argv[0], "alias"))
+	else if (!strcmp(e_argv[0], "alias"))
 		b_alias(cmd_exit, e_argv, source, aliases);
 
 	// Check for unalias
@@ -279,7 +354,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				for (size_t v = 0; v < cmd->c_argc; ++v)
 					free(e_argv[v]);
 				*cmd_exit = 1;
-				return 0;
+				return CSIG_DONE;
 			}
 			char *exec = e_argv[0];
 			for (size_t i = 0; i < cmd->c_argc; ++i)
@@ -292,7 +367,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 		if (cmd->c_io.out_pipe) {
 			if (pipe(pout) == -1) {
 				fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
-				return -1;
+				return CSIG_EXIT;
 			}
 		}
 
@@ -304,7 +379,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			if (filein != NULL) {
 				if (pipe(pin) == -1) {
 					fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
-					return -1;
+					return CSIG_EXIT;
 				}
 				data_in = (ThreadData){ .read_fd = fds[0], .write_fd = pin[1], .run = 1, .file = filein };
 				pthread_create(&thread_in, NULL, threadInput, &data_in);
@@ -341,7 +416,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			*history_pool = NULL;
 
 			*cmd_exit = 1;
-			return -1;
+			return CSIG_EXIT;
 		}
 
 		// If this command is being piped into another
@@ -354,7 +429,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			if (fileout != NULL) {
 				if (pipe(fds) == -1) {
 					fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
-					return -1;
+					return CSIG_EXIT;
 				}
 				data_out = (ThreadData){ .read_fd = pout[0], .write_fd = fds[1], .run = 1, .file = fileout };
 				pthread_create(&thread_out, NULL, threadOutput, &data_out);
@@ -364,7 +439,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			int temp[2] = { fds[0], fds[1] };
 
 			// Run next command
-			int res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit);
+			CmdSignal res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit);
 			closeIOFiles(&cmd->c_next->c_io);
 			if (fileout != NULL) {
 				//data_out.run = 0;
@@ -373,8 +448,17 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				close(temp[1]);
 			}
 			close(pout[0]);
-			if (res == -1)
-				return -1;
+			switch (res) {
+				case CSIG_DONE:
+					break;
+				case CSIG_EXEC:
+					// TODO handle exec fail
+					res = CSIG_EXIT;
+				case CSIG_EXIT:
+				case CSIG_CONTINUE:
+				case CSIG_BREAK:
+					return res;
+			}
 		}
 
 		// While the main process waits for the child to exit
@@ -402,12 +486,12 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			for (size_t i = 0; i < cmd->c_argc - 1; ++i)
 				free(e_argv[i]);
 			free(e_argv[cmd->c_argc]);
-			return -1;
+			return CSIG_EXIT;
 		}
 	}
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		free(e_argv[i]);
-	return 0;
+	return CSIG_DONE;
 }
 
 int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint8_t *cmd_exit) {

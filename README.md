@@ -13,6 +13,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Removing environment variables with `unset`
 - POSIX `exec` (only for executing commands, does not have file descriptor functionality)
 - `shift` to shift out positional parameters (arguments) - most useful in scripts
+- `break` and `continue` to stop, or return to the top of a while loop
 
 ## Others
 - Run scripts (can be used as a shebang)
@@ -38,7 +39,6 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Create `$XDG\_CONFIG\_HOME/mash/config.mash`?
 - Keep history loaded in memory to allow for `!` statements and possibly arrow keys (up/down).
 - Improve syntax error output messages
-- Remove builtin array (the format is too limiting)
 - Jobs
 - Split commandExecute into multiple functions, and use those functions where appropriate to improve performance (subshells don't need to parse aliases because there won't be any!)
 
@@ -49,3 +49,4 @@ Not necessarily trying to bring any unique features to the table, I just want to
 # Misc
 An idea I had before finding out about `environ`(7):  
 Environment variable dictionary using binary search tree (still store in array, but use this to easily find its location if it exists)
+Builtins were going to use suffix trees, and did up until commit `0cead82c` where I finally deleted the code. Although janky in its implementation I was still somewhat proud of them.

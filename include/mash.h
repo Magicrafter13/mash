@@ -3,7 +3,6 @@
 
 #include "command_structures.h"
 #include "hashTable.h"
-#include "suftree.h"
 #include <pwd.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -11,6 +10,15 @@
 #define _VMAJOR 1
 #define _VMINOR 0
 #define TMP_RW_BUFSIZE 4096
+
+typedef enum _cmd_signal CmdSignal;
+enum _cmd_signal {
+	CSIG_DONE,
+	CSIG_EXIT,
+	CSIG_EXEC,
+	CSIG_CONTINUE,
+	CSIG_BREAK
+};
 
 typedef struct _cmd_source Source;
 struct _cmd_source {
@@ -36,7 +44,7 @@ int main(int, char*[]);
  * Command execution
  */
 
-int commandExecute(Command*, AliasMap*, Source**, Variables*, FILE**, uint8_t*);
+CmdSignal commandExecute(Command*, AliasMap*, Source**, Variables*, FILE**, uint8_t*);
 int expandArgument(char**, CmdArg, Source*, Variables*, uint8_t*);
 
 /*
@@ -71,7 +79,7 @@ int sourceShift(Source*, int);
 void b_alias(uint8_t*, char**, Source*, AliasMap*);
 void b_cd(uint8_t*, char**, int);
 void b_dot(uint8_t*, char**, int, Source**);
-int b_exit(uint8_t*, char**, int, Source*);
+CmdSignal b_exit(uint8_t*, char**, int, Source*);
 void b_export(uint8_t*, char**, int, Source*, Variables*);
 void b_help(uint8_t*);
 void b_read(uint8_t*, FILE*, char**, Source*, Variables*);

@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-int b_exit(uint8_t *cmd_exit, char **argv, int argc, Source *source) {
+CmdSignal b_exit(uint8_t *cmd_exit, char **argv, int argc, Source *source) {
 	if (argc > 1) {
 		int temp;
 		sscanf(argv[1], "%u", &temp);
@@ -15,8 +15,8 @@ int b_exit(uint8_t *cmd_exit, char **argv, int argc, Source *source) {
 		free(argv[v]);
 
 	if (source->input == stdin)
-		return -1;
+		return CSIG_EXIT;
 	else
 		fseek(source->input, 0, SEEK_END);
-	return 0;
+	return CSIG_DONE;
 }
