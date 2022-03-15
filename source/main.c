@@ -95,9 +95,6 @@ int main(int argc, char *argv[]) {
 
 	// Further initialization after successful setup and argument parsing
 	Command *cmd = NULL, *last_cmd = commandInit(); // TODO make a struct for a command - can have an array of command history to call back on!
-	SufTree builtins = suftreeInit(BUILTIN[0], 0);
-	for (size_t b = 1; b < BUILTIN_COUNT; b++)
-		suftreeAdd(&builtins, BUILTIN[b], b);
 	AliasMap *aliases = aliasInit();
 	Variables *vars = variableInit();
 
@@ -131,7 +128,7 @@ int main(int argc, char *argv[]) {
 								fprintf(stderr, "%s: PROMPT_COMMAND: syntax error, command not complete\n", source->argv[0]);
 							break;
 						case 0:
-							if (commandExecute(&promptcmd, aliases, &source, vars, &history_pool, &cmd_exit, &builtins) == -1)
+							if (commandExecute(&promptcmd, aliases, &source, vars, &history_pool, &cmd_exit) == -1)
 								isChild = 1;
 							break;
 						default:
@@ -180,7 +177,7 @@ int main(int argc, char *argv[]) {
 		/*
 		 * Execute command
 		 */
-		if (commandExecute(cmd, aliases, &source, vars, &history_pool, &cmd_exit, &builtins) == -1)
+		if (commandExecute(cmd, aliases, &source, vars, &history_pool, &cmd_exit) == -1)
 			break;
 		while (cmd->c_io.out_pipe)
 			cmd = cmd->c_next;
@@ -195,10 +192,6 @@ int main(int argc, char *argv[]) {
 	free(last_cmd);
 
 	aliasFree(aliases);
-
-	suftreeFree(builtins.sf_gt);
-	suftreeFree(builtins.sf_eq);
-	suftreeFree(builtins.sf_lt);
 
 	// Update history file
 	if (interactive && history_pool != NULL) {

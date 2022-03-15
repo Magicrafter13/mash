@@ -36,7 +36,7 @@ int main(int, char*[]);
  * Command execution
  */
 
-int commandExecute(Command*, AliasMap*, Source**, Variables*, FILE**, uint8_t*, SufTree*);
+int commandExecute(Command*, AliasMap*, Source**, Variables*, FILE**, uint8_t*);
 int expandArgument(char**, CmdArg, Source*, Variables*, uint8_t*);
 
 /*
@@ -68,15 +68,16 @@ int sourceShift(Source*, int);
  * Built-ins
  */
 
-uint8_t export(size_t, void**);
-uint8_t help(size_t, void**);
-uint8_t cd(size_t, void**);
-
-#define BUILTIN_COUNT 2
-
-extern char *const BUILTIN[BUILTIN_COUNT];
-
-extern uint8_t (*BUILTIN_FUNCTION[BUILTIN_COUNT])(size_t, void**);
+void b_alias(uint8_t*, char**, Source*, AliasMap*);
+void b_cd(uint8_t*, char**, int);
+void b_dot(uint8_t*, char**, int, Source**);
+int b_exit(uint8_t*, char**, int, Source*);
+void b_export(uint8_t*, char**, int, Source*, Variables*);
+void b_help(uint8_t*);
+void b_read(uint8_t*, FILE*, char**, Source*, Variables*);
+void b_shift(uint8_t*, char**, int, Source*);
+void b_unalias(uint8_t*, char**, int, AliasMap*);
+void b_unset(uint8_t*, char**, Source*, Variables*);
 
 /*
  * Environment/Shell Variables

@@ -1,4 +1,5 @@
-#define _GNU_SOURCE // strchrnul
+#define _DEFAULT_SOURCE // random
+#define _POSIX_C_SOURCE 200809L // fileno
 #include "command.h"
 #include "mash.h"
 #include <errno.h>
@@ -59,7 +60,7 @@ void *threadOutput(void *ptr) {
 	return NULL;
 }
 
-int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables *vars, FILE **history_pool, uint8_t *cmd_exit, SufTree *builtins) {
+int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables *vars, FILE **history_pool, uint8_t *cmd_exit) {
 	// Empty/blank command, or skippable command (then, else, do)
 	switch (cmd->c_type) {
 		case CMD_WHILE:
@@ -76,7 +77,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			for (;;) {
 				// Execute test commands
 				for (Command *cur = cmd->c_cmds; cur != NULL; cur = cur->c_next) {
-					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
+					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit) == -1) {
 						closeIOFiles(&cur->c_io);
 						return -1;
 					}
@@ -86,7 +87,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				if (*cmd_exit != 0)
 					break;
 				// Otherwise run body commands
-				if (commandExecute(cmd->c_if_true, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
+				if (commandExecute(cmd->c_if_true, aliases, _source, vars, history_pool, cmd_exit) == -1) {
 					closeIOFiles(&cmd->c_io);
 					return -1;
 				}
@@ -109,7 +110,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 				*cmd_exit = 0;
 			else {
 				for (Command *cur = cmd->c_cmds; cur != NULL; cur = cur->c_next) {
-					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
+					if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit) == -1) {
 							closeIOFiles(&cur->c_io);
 							return -1;
 					}
@@ -119,7 +120,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			// Execute next set of commands based on exit status
 			Command *next = *cmd_exit == 0 ? cmd->c_if_true : cmd->c_if_false;
 			if (next != NULL) {
-				if (commandExecute(*cmd_exit == 0 ? cmd->c_if_true : cmd->c_if_false, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1) {
+				if (commandExecute(*cmd_exit == 0 ? cmd->c_if_true : cmd->c_if_false, aliases, _source, vars, history_pool, cmd_exit) == -1) {
 					closeIOFiles(&cmd->c_io);
 					return -1;
 				}
@@ -130,7 +131,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 		case CMD_THEN:
 		case CMD_ELSE:
 			for (Command *cur = cmd->c_next; cur != NULL; cur = cur->c_next) {
-				if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit, builtins) == -1)
+				if (commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit) == -1)
 					return -1;
 				while (cur->c_io.out_pipe)
 					cur = cur->c_next;
@@ -230,152 +231,44 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 #endif
 
 	// Check for alias
-	if (!strcmp(e_argv[0], "alias")) {
-		*cmd_exit = 0;
-		// List all aliases
-		if (e_argv[1] == NULL)
-			aliasList(aliases, stdout);
-		// List or set one alias
-		else {
-			char *equal_addr = strchr(e_argv[1], '=');
-			// No equal sign, means to show an alias
-			if (equal_addr == NULL)
-				*cmd_exit = aliasPrint(aliases, e_argv[1], stdout);
-			else {
-				size_t equals = equal_addr - e_argv[1];
-				// Nothing to the left of the equal sign
-				if (equals == 0)
-					*cmd_exit = 1;
-				else {
-					e_argv[1][equals] = '\0';
-					if (aliasAdd(aliases, e_argv[1], &e_argv[1][equals + 1]) == NULL) {
-						fprintf(stderr, "%s: alias: error parsing string\n", source->argv[0]);
-						*cmd_exit = 1;
-					}
-				}
-			}
-		}
-	}
+	if (!strcmp(e_argv[0], "alias"))
+		b_alias(cmd_exit, e_argv, source, aliases);
 
 	// Check for unalias
-	else if (!strcmp(e_argv[0], "unalias")) {
-		for (size_t v = 1; v < cmd->c_argc; ++v) {
-			if (!aliasRemove(aliases, e_argv[v])) {
-				fprintf(stderr, "No such alias `%s'\n", e_argv[v]);
-				*cmd_exit = 1;
-			}
-			free(e_argv[v]);
-		}
-		free(e_argv[0]);
-		return 0;
-	}
+	else if (!strcmp(e_argv[0], "unalias"))
+		b_unalias(cmd_exit, e_argv, cmd->c_argc, aliases);
 
 	// Exit shell
-	else if (!strcmp(e_argv[0], "exit")) {
-		if (cmd->c_argc > 1) {
-			int temp;
-			sscanf(e_argv[1], "%u", &temp);
-			*cmd_exit = temp % 256;
-		}
-		else
-			*cmd_exit = 0;
+	else if (!strcmp(e_argv[0], "exit"))
+		return b_exit(cmd_exit, e_argv, cmd->c_argc, source);
 
-		for (size_t v = 0; v < cmd->c_argc; ++v)
-			free(e_argv[v]);
+	// Show help
+	else if (!strcmp(e_argv[0], "help"))
+		b_help(cmd_exit);
 
-		if (source->input == stdin)
-			return -1;
-		else
-			fseek(source->input, 0, SEEK_END);
-		return 0;
-	}
-
-	// Execute builtin
-	else if (suftreeHas(builtins, e_argv[0], &cmd_builtin)) {
-#ifdef DEFINE
-		fprintf(stderr, "Executing builtin '%s'\n", BUILTIN[cmd_builtin]);
-#endif
-		BUILTIN_FUNCTION[cmd_builtin](cmd->c_argc, (void**)e_argv);
-	}
+	// Change directory
+	else if (!strcmp(e_argv[0], "cd"))
+		b_cd(cmd_exit, e_argv, cmd->c_argc);
 
 	// Export variable
-	else if (!strcmp(e_argv[0], "export")) {
-		if (cmd->c_argc > 1) {
-			char *equal_addr = strchrnul(e_argv[1], '='), *value = NULL;
-			if (equal_addr[0] == '=') {
-				equal_addr[0] = '\0';
-				value = &equal_addr[1];
-			}
-			if (setvar(vars, e_argv[1], value, 1) == -1) {
-				fprintf(stderr, "%s: export: %m\n", source->argv[0]);
-				*cmd_exit = 1;
-			}
-		}
-		else
-			*cmd_exit = 1;
-	}
+	else if (!strcmp(e_argv[0], "export"))
+		b_export(cmd_exit, e_argv, cmd->c_argc, source, vars);
 
 	// Check for unset
-	else if (!strcmp(e_argv[0], "unset")) {
-		for (size_t i = 1; e_argv[i] != NULL; ++i) {
-			if (unsetvar(vars, e_argv[i]) == -1) {
-				fprintf(stderr, "%s: unset: %m\n", source->argv[0]);
-				*cmd_exit = 1;
-			}
-		}
-	}
+	else if (!strcmp(e_argv[0], "unset"))
+		b_unset(cmd_exit, e_argv, source, vars);
 
 	// Check for dot (source file)
-	else if (!strcmp(e_argv[0], ".")) {
-		FILE *script = fopen(e_argv[1], "r");
-		if (script != NULL)
-			*_source = sourceAdd(source, script, cmd->c_argc - 1, &e_argv[1]);
-		else {
-			fprintf(stderr, "%s: .: %m\n", source->argv[0]);
-			*cmd_exit = 1;
-		}
-	}
+	else if (!strcmp(e_argv[0], "."))
+		b_dot(cmd_exit, e_argv, cmd->c_argc, _source);
 
 	// Check for read
-	else if (!strcmp(e_argv[0], "read")) {
-		*cmd_exit = 0;
-		char *value = NULL;
-		size_t size = 0, bytes_read;
-		if (filein == NULL)
-			bytes_read = getline(&value, &size, stdin);
-		else { // Cursed code to keep FILE position and fd offset in sync...
-			off_t offset = lseek(fileno(filein), 0, SEEK_CUR);
-			bytes_read = getline(&value, &size, filein);
-			if (bytes_read > 0)
-				lseek(fileno(filein), offset + bytes_read, SEEK_SET);
-		}
-		if (bytes_read == -1) {
-			if (filein == NULL)
-				clearerr(stdin);
-			*cmd_exit = 1;
-		}
-		else {
-			if (value[bytes_read - 1] == '\n')
-				value[bytes_read - 1] = '\0';
-			if (e_argv[1] != NULL) {
-				if (setvar(vars, e_argv[1], value, 0) == -1) {
-					*cmd_exit = errno;
-					fprintf(stderr, "%s: read: %m\n", source->argv[0]);
-				}
-			}
-		}
-		free(value);
-	}
+	else if (!strcmp(e_argv[0], "read"))
+		b_read(cmd_exit, filein, e_argv, source, vars);
 
 	// Shift args
-	else if (!strcmp(e_argv[0], "shift")) {
-		int amount = 1;
-		if (cmd->c_argc > 1) {
-			int left, right;
-			sscanf(e_argv[1], "%n%d%n", &left, &amount, &right);
-		}
-		*cmd_exit = sourceShift(source, amount);
-	}
+	else if (!strcmp(e_argv[0], "shift"))
+		b_shift(cmd_exit, e_argv, cmd->c_argc, source);
 
 	// Regular command
 	else {
@@ -471,7 +364,7 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 			int temp[2] = { fds[0], fds[1] };
 
 			// Run next command
-			int res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit, builtins);
+			int res = commandExecute(cmd->c_next, aliases, _source, vars, history_pool, cmd_exit);
 			closeIOFiles(&cmd->c_next->c_io);
 			if (fileout != NULL) {
 				//data_out.run = 0;
