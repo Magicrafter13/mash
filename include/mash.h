@@ -1,7 +1,7 @@
 #ifndef MASH_H
 #define MASH_H
 
-#include "command.h"
+#include "command_structures.h"
 #include "hashTable.h"
 #include "suftree.h"
 #include <pwd.h>
@@ -26,8 +26,6 @@ struct _shell_var {
 	unsigned long long buckets;
 	hashTable *map;
 };
-
-extern void *_DUMMY_PTR[];
 
 /*
  * Entry Point!

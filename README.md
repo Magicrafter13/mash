@@ -40,7 +40,6 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Improve syntax error output messages
 - Remove builtin array (the format is too limiting)
 - Jobs
-- Expand aliases before execution (right after tokenizing)
 - Split commandExecute into multiple functions, and use those functions where appropriate to improve performance (subshells don't need to parse aliases because there won't be any!)
 
 ## Code Improvements

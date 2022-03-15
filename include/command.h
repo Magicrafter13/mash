@@ -2,34 +2,25 @@
 #define COMMAND_H
 
 #include "command_structures.h"
-#include "hashTable.h"
+
+/*
+ * Arguments
+ */
+
+CmdArg argdup(CmdArg);
+void freeArg(CmdArg);
 
 /*
  * Commands
  */
 
 Command *commandInit();
-int commandParse(Command*, FILE*restrict, FILE*restrict);
-CmdArg argdup(CmdArg);
+int commandParse(Command*, FILE*restrict, FILE*restrict, AliasMap*);
 void commandFree(Command*);
-void freeArg(CmdArg);
 
 /*
  * Aliases
  */
-
-typedef struct _alias_map AliasMap;
-struct _alias_map {
-	unsigned long long buckets;
-	hashTable *map;
-};
-
-typedef struct _alias Alias;
-struct _alias {
-	char *str;
-	int argc;
-	CmdArg *args;
-};
 
 AliasMap *aliasInit();
 void aliasFree(AliasMap*);

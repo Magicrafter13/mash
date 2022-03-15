@@ -21,7 +21,7 @@ size_t shiftArg(Command *cmd) {
 	return --cmd->c_argc;
 }
 
-int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
+int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases) {
 	if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING)
 		return 0;
 
@@ -33,7 +33,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_DO;
 
-			int ret = parseMultiline(cmd->c_next, istream, ostream);
+			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
@@ -43,6 +43,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 						ret = 1;
 						break;
 					default:
+						// Attempt to parse aliases
+						if (aliases != NULL)
+							aliasResolve(aliases, cmd->c_next);
 						break;
 				}
 			}
@@ -57,7 +60,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_THEN;
 
-			int ret = parseMultiline(cmd->c_next, istream, ostream);
+			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
@@ -66,6 +69,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 						ret = 1;
 						break;
 					default:
+						// Attempt to parse aliases
+						if (aliases != NULL)
+							aliasResolve(aliases, cmd->c_next);
 						break;
 				}
 			}
@@ -80,7 +86,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_ELSE;
 
-			int ret = parseMultiline(cmd->c_next, istream, ostream);
+			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
@@ -90,6 +96,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 						ret = 1;
 						break;
 					default:
+						// Attempt to parse aliases
+						if (aliases != NULL)
+							aliasResolve(aliases, cmd->c_next);
 						break;
 				}
 			}
@@ -138,10 +147,13 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 		Command *const while_cmd = cmd, *test_cmd = cmd->c_next;
 		// Parse anything that came after "while"
 		if (test_cmd != NULL) {
-			int res = parseMultiline(test_cmd, istream, ostream);
+			int res = parseMultiline(test_cmd, istream, ostream, aliases);
 			if (res != 0)
 				return res;
 			test_cmd->c_parent = while_cmd;
+			// Attempt to parse aliases
+			if (aliases != NULL)
+				aliasResolve(aliases, cmd->c_next);
 			while (test_cmd->c_next != NULL) {
 				test_cmd = test_cmd->c_next;
 				test_cmd->c_parent = while_cmd;
@@ -157,7 +169,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_size = test_cmd->c_size;
 			cmd->c_buf = test_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -200,7 +212,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_size = body_cmd->c_size;
 			cmd->c_buf = body_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -255,9 +267,12 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 		Command *const if_cmd = cmd, *test_cmd = cmd->c_next;
 		// Parse anything that came after "if"
 		if (test_cmd != NULL) {
-			int res = parseMultiline(test_cmd, istream, ostream);
+			int res = parseMultiline(test_cmd, istream, ostream, aliases);
 			if (res != 0)
 				return res;
+			// Attempt to parse aliases
+			if (aliases != NULL)
+				aliasResolve(aliases, cmd->c_next);
 			test_cmd->c_parent = if_cmd;
 			while (test_cmd->c_next != NULL) {
 				test_cmd = test_cmd->c_next;
@@ -274,7 +289,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_size = test_cmd->c_size;
 			cmd->c_buf = test_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -317,7 +332,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream)
 			cmd->c_size = body_cmd->c_size;
 			cmd->c_buf = body_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -381,7 +396,7 @@ ssize_t lengthSingleQuote(char*);
 ssize_t lengthDoubleQuote(char*);
 ssize_t lengthRegInDouble(char *);
 ssize_t lengthDollarExp(char*);
-int commandTokenize(Command*, FILE*restrict, FILE*restrict);
+int commandTokenize(Command*, FILE*restrict, FILE*restrict, AliasMap*);
 
 Command *commandInit() {
 	Command *new_command = malloc(sizeof (Command));
@@ -424,7 +439,7 @@ int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	return 0;
 }
 
-int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
+int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases) {
 	Command *original = cmd;
 
 	// Read line if buffer isn't empty
@@ -439,7 +454,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 
 	size_t error_length = 0;
 	// Parse Input (into tokens)
-	if (commandTokenize(cmd, istream, ostream)) { // Determine tokens and save them into cmd->c_argv
+	if (commandTokenize(cmd, istream, ostream, aliases)) { // Determine tokens and save them into cmd->c_argv
 		// Error parsing command.
 		original->c_len = error_length + cmd->c_len;
 		cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
@@ -447,13 +462,17 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	}
 	error_length += cmd->c_len + 1;
 
-	int parse_result = parseMultiline(cmd, istream, ostream);
+	int parse_result = parseMultiline(cmd, istream, ostream, aliases);
 	if (parse_result == -1)
 		return -1;
 	if (parse_result) {
 		original->c_len = error_length + cmd->c_len;
 		return 1;
 	}
+
+	// Attempt to parse aliases
+	if (aliases != NULL)
+		aliasResolve(aliases, cmd);
 
 	return 0;
 }
@@ -591,7 +610,7 @@ ssize_t lengthDollarExp(char *buf) {
 	return l;
 }
 
-int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
+int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases) {
 	char *buf = cmd->c_buf;
 	/*
 	 * end: current parse index - when finished it will point one char past the end of the command
@@ -883,7 +902,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 		next->c_len = cmd->c_len;
 		next->c_size = cmd->c_size;
 		next->c_buf = cmd->c_buf;
-		const int parse_result = commandParse(next, istream, ostream);
+		const int parse_result = commandParse(next, istream, ostream, aliases);
 		if (next->c_buf != cmd->c_buf) {
 			cmd->c_size = next->c_size;
 			cmd->c_buf = next->c_buf;

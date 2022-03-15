@@ -1,4 +1,5 @@
 #define _GNU_SOURCE // strchrnul
+#include "command.h"
 #include "mash.h"
 #include <errno.h>
 #include <inttypes.h>
@@ -7,8 +8,6 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <unistd.h>
-
-void *_DUMMY_PTR[1] = { NULL };
 
 size_t cmd_builtin;
 
@@ -174,9 +173,6 @@ int commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables 
 	}
 	else if (cmd->c_parent != NULL && cmd->c_parent->c_io.out_count > 0)
 		fileout = getParentOutputFile(cmd);
-
-	// Attempt to parse aliases
-	aliasResolve(aliases, cmd);
 
 	Source *source = *_source;
 

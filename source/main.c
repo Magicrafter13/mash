@@ -121,7 +121,7 @@ int main(int argc, char *argv[]) {
 				char *PROMPTCMD = getvar(vars, "PROMPT_COMMAND");
 				if (PROMPTCMD != NULL) {
 					Command promptcmd = { .c_len = strlen(PROMPTCMD), .c_buf = strdup(PROMPTCMD) };
-					int parse_result = commandParse(&promptcmd, NULL, NULL);
+					int parse_result = commandParse(&promptcmd, NULL, NULL, aliases);
 					_Bool isChild = 0;
 					switch (parse_result) {
 						case -1:
@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
 				printPrompt(vars, source, PASSWD, UID);
 			}
 
-			int parse_result = commandParse(cmd, source->input, source->output);
+			int parse_result = commandParse(cmd, source->input, source->output, aliases);
 			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (subshell)
