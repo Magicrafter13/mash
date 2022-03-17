@@ -31,15 +31,17 @@ clean:
 
 install:
 	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
+	@if [ -z "$$DESTDIR" ]; then export DESTDIR=/usr/bin; fi
 #	$(RM) /usr/bin/mash
-	cp -f mash /usr/bin/mash
+	cp -f mash "$$DESTDIR/mash"
 	@echo "For \`chsh' to allow you to use mash as your shell, you must add it to"
 	@echo "/etc/shells"
-	@echo "Mash has been installed to /usr/bin/mash"
+	@echo "Mash has been installed to $$DESTDIR/mash"
 
 uninstall:
 	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
-	$(RM) /usr/bin/mash
+	@if [ -z "$$DESTDIR" ]; then export DESTDIR=/usr/bin; fi
+	$(RM) "$$DESTDIR/mash"
 	@echo "If you modified /etc/shells don't forget to change it back."
 	@echo "Mash has been uninstalled from your system"
 
