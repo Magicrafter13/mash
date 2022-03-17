@@ -32,6 +32,7 @@ clean:
 install:
 	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
 	@if [ -z "$$DESTDIR" ]; then export DESTDIR=/usr/bin; fi
+	mkdir -p "$$DESTDIR"
 #	$(RM) /usr/bin/mash
 	cp -f mash "$$DESTDIR/mash"
 	@echo "For \`chsh' to allow you to use mash as your shell, you must add it to"
