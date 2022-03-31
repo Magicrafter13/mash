@@ -1,4 +1,5 @@
 #define _GNU_SOURCE // strchrnul
+#include "compatibility.h"
 #include "mash.h"
 #include <stdio.h>
 #include <string.h>

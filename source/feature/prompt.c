@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L // fileno
 #define _GNU_SOURCE // strchrnul
+#include "compatibility.h"
 #include "mash.h"
 #include <limits.h>
 #include <stdio.h>
