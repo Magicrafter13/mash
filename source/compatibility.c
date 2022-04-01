@@ -23,6 +23,6 @@ void *reallocarray(void *ptr, size_t nmemb, size_t size) {
 char *strchrnul(const char *s, int c) {
 	while (*s != c && *s != '\0')
 		++s;
-	return s;
+	return (char*)s;
 }
 #endif

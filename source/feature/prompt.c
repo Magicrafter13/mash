@@ -11,7 +11,7 @@
 
 char DEFAULT_PROMPT[4] = "\\$ ";
 
-void printPrompt(Variables *vars, Source *source, struct passwd *PASSWD, uid_t UID) {
+char *createPrompt(Variables *vars, Source *source, struct passwd *PASSWD, uid_t UID) {
 	// Set various variables which may be used
 	time_t timep = time(NULL);
 	struct tm *tm = localtime(&timep);
@@ -337,6 +337,7 @@ void printPrompt(Variables *vars, Source *source, struct passwd *PASSWD, uid_t U
 	}
 
 	// Print prompt
-	fputs(prompt, stderr);
-	fflush(stderr);
+	return strdup(prompt);
+	/*fputs(prompt, stderr);
+	fflush(stderr);*/
 }

@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L // getline, strndup, strdup
 #include "command.h"
 #include "compatibility.h"
+#include <readline/readline.h>
 #include <string.h>
 
 #define dupSpecialCommand(cmd) { \
@@ -21,7 +22,7 @@ size_t shiftArg(Command *cmd) {
 	return --cmd->c_argc;
 }
 
-int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases) {
+int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases, char *PROMPT) {
 	if (cmd->c_argc < 1 || cmd->c_argv[0].type != ARG_BASIC_STRING)
 		return 0;
 
@@ -33,7 +34,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_DO;
 
-			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases);
+			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases, PROMPT);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
@@ -60,7 +61,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_THEN;
 
-			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases);
+			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases, PROMPT);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
@@ -86,7 +87,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			dupSpecialCommand(cmd);
 			cmd->c_type = CMD_ELSE;
 
-			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases);
+			int ret = parseMultiline(cmd->c_next, istream, ostream, aliases, PROMPT);
 			if (ret == 0) {
 				switch (cmd->c_next->c_type) {
 					case CMD_DO:
@@ -147,7 +148,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 		Command *const while_cmd = cmd, *test_cmd = cmd->c_next;
 		// Parse anything that came after "while"
 		if (test_cmd != NULL) {
-			int res = parseMultiline(test_cmd, istream, ostream, aliases);
+			int res = parseMultiline(test_cmd, istream, ostream, aliases, PROMPT);
 			if (res != 0)
 				return res;
 			test_cmd->c_parent = while_cmd;
@@ -169,7 +170,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			cmd->c_size = test_cmd->c_size;
 			cmd->c_buf = test_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream, aliases);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases, PROMPT);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -212,7 +213,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			cmd->c_size = body_cmd->c_size;
 			cmd->c_buf = body_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream, aliases);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases, PROMPT);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -267,7 +268,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 		Command *const if_cmd = cmd, *test_cmd = cmd->c_next;
 		// Parse anything that came after "if"
 		if (test_cmd != NULL) {
-			int res = parseMultiline(test_cmd, istream, ostream, aliases);
+			int res = parseMultiline(test_cmd, istream, ostream, aliases, PROMPT);
 			if (res != 0)
 				return res;
 			// Attempt to parse aliases
@@ -289,7 +290,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			cmd->c_size = test_cmd->c_size;
 			cmd->c_buf = test_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream, aliases);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases, PROMPT);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -332,7 +333,7 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 			cmd->c_size = body_cmd->c_size;
 			cmd->c_buf = body_cmd->c_buf;
 
-			const int parse_result = commandParse(cmd, istream, ostream, aliases);
+			const int parse_result = commandParse(cmd, istream, ostream, aliases, PROMPT);
 			if (parse_result == -1) {
 				commandFree(cmd);
 				free(cmd);
@@ -396,7 +397,7 @@ ssize_t lengthSingleQuote(char*);
 ssize_t lengthDoubleQuote(char*);
 ssize_t lengthRegInDouble(char *);
 ssize_t lengthDollarExp(char*);
-int commandTokenize(Command*, FILE*restrict, FILE*restrict, AliasMap*);
+int commandTokenize(Command*, FILE*restrict, FILE*restrict, AliasMap*, char*);
 
 Command *commandInit() {
 	Command *new_command = malloc(sizeof (Command));
@@ -423,14 +424,33 @@ Command *commandInit() {
 	return new_command;
 }
 
-int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
-	cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, istream);
-	if (cmd->c_len == -1)
-		return -1;
+int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream, char *PROMPT) {
+	if (istream == stdin) {
+		if (cmd->c_buf != NULL)
+			free(cmd->c_buf);
+		cmd->c_buf = readline(PROMPT);
+		if (cmd->c_buf == NULL)
+			return -1;
+		cmd->c_len = strlen(cmd->c_buf);
+		cmd->c_size = 0;
 
-	if (ostream != NULL) {
-		fputs(cmd->c_buf, ostream);
-		fflush(ostream);
+		if (ostream != NULL) {
+			fputs(cmd->c_buf, ostream);
+			fputc('\n', ostream);
+			fflush(ostream);
+		}
+	}
+	else {
+		if (cmd->c_size == 0 && cmd->c_buf != NULL)
+			free(cmd->c_buf);
+		cmd->c_len = getline(&cmd->c_buf, &cmd->c_size, istream);
+		if (cmd->c_len == -1)
+			return -1;
+
+		if (ostream != NULL) {
+			fputs(cmd->c_buf, ostream);
+			fflush(ostream);
+		}
 	}
 
 	if (cmd->c_buf[cmd->c_len - 1] == '\n') // If final character is a new line, replace it with a null terminator
@@ -439,12 +459,12 @@ int commandRead(Command *cmd, FILE *restrict istream, FILE *restrict ostream) {
 	return 0;
 }
 
-int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases) {
+int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases, char *PROMPT) {
 	Command *original = cmd;
 
 	// Read line if buffer isn't empty
 	if (cmd->c_buf == NULL || cmd->c_buf[0] == '\0')
-		if (istream == NULL || commandRead(cmd, istream, ostream) == -1)
+		if (istream == NULL || commandRead(cmd, istream, ostream, PROMPT) == -1)
 			return -1;
 	if (cmd->c_buf[0] == '\0' || cmd->c_buf[0] == '#') { // Blank input, or a comment, just ignore and print another prompt.
 		cmd->c_buf[0] = '\0';
@@ -454,7 +474,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream, A
 
 	size_t error_length = 0;
 	// Parse Input (into tokens)
-	if (commandTokenize(cmd, istream, ostream, aliases)) { // Determine tokens and save them into cmd->c_argv
+	if (commandTokenize(cmd, istream, ostream, aliases, PROMPT)) { // Determine tokens and save them into cmd->c_argv
 		// Error parsing command.
 		original->c_len = error_length + cmd->c_len;
 		cmd->c_buf[0] = cmd->c_buf[cmd->c_len];
@@ -462,7 +482,7 @@ int commandParse(Command *cmd, FILE *restrict istream, FILE *restrict ostream, A
 	}
 	error_length += cmd->c_len + 1;
 
-	int parse_result = parseMultiline(cmd, istream, ostream, aliases);
+	int parse_result = parseMultiline(cmd, istream, ostream, aliases, PROMPT);
 	if (parse_result == -1)
 		return -1;
 	if (parse_result) {
@@ -610,7 +630,7 @@ ssize_t lengthDollarExp(char *buf) {
 	return l;
 }
 
-int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases) {
+int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases, char *PROMPT) {
 	char *buf = cmd->c_buf;
 	/*
 	 * end: current parse index - when finished it will point one char past the end of the command
@@ -902,7 +922,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 		next->c_len = cmd->c_len;
 		next->c_size = cmd->c_size;
 		next->c_buf = cmd->c_buf;
-		const int parse_result = commandParse(next, istream, ostream, aliases);
+		const int parse_result = commandParse(next, istream, ostream, aliases, PROMPT);
 		if (next->c_buf != cmd->c_buf) {
 			cmd->c_size = next->c_size;
 			cmd->c_buf = next->c_buf;

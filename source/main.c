@@ -104,6 +104,8 @@ int main(int argc, char *argv[]) {
 		sourceSet(source, NULL, 1, argv);
 	}
 
+	char *PROMPT = NULL;
+
 	// User prompt (main loop)
 	for (;;) {
 		// cmd == NULL tells us we need to free the current command chain, then read more
@@ -117,7 +119,7 @@ int main(int argc, char *argv[]) {
 				char *PROMPTCMD = getvar(vars, "PROMPT_COMMAND");
 				if (PROMPTCMD != NULL) {
 					Command promptcmd = { .c_len = strlen(PROMPTCMD), .c_buf = strdup(PROMPTCMD) };
-					int parse_result = commandParse(&promptcmd, NULL, NULL, aliases);
+					int parse_result = commandParse(&promptcmd, NULL, NULL, aliases, NULL);
 					_Bool isChild = 0;
 					switch (parse_result) {
 						case -1:
@@ -140,10 +142,10 @@ int main(int argc, char *argv[]) {
 					if (isChild)
 						break;
 				}
-				printPrompt(vars, source, PASSWD, UID);
+				PROMPT = createPrompt(vars, source, PASSWD, UID);
 			}
 
-			int parse_result = commandParse(cmd, source->input, source->output, aliases);
+			int parse_result = commandParse(cmd, source->input, source->output, aliases, PROMPT);
 			last_cmd = cmd;
 			if (parse_result == -1) {
 				if (subshell)
@@ -163,6 +165,10 @@ int main(int argc, char *argv[]) {
 				if (interactive)
 					fputc('\n', stderr);
 				break;
+			}
+			if (PROMPT != NULL) {
+				free(PROMPT);
+				PROMPT = NULL;
 			}
 			if (parse_result) {
 				fprintf(stderr, "   %*s\n", (int)cmd->c_len, "^");
@@ -202,6 +208,11 @@ int main(int argc, char *argv[]) {
 
 		// Otherwise, we should advance to the next command
 		cmd = cmd->c_next;
+	}
+
+	if (PROMPT != NULL) {
+		free(PROMPT);
+		PROMPT = NULL;
 	}
 
 	if (!subshell && last_cmd->c_buf != NULL)

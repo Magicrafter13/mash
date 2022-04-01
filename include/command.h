@@ -15,7 +15,7 @@ void freeArg(CmdArg);
  */
 
 Command *commandInit();
-int commandParse(Command*, FILE*restrict, FILE*restrict, AliasMap*);
+int commandParse(Command*, FILE*restrict, FILE*restrict, AliasMap*, char*);
 void commandFree(Command*);
 
 /*

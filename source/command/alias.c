@@ -76,7 +76,7 @@ Alias *aliasAdd(AliasMap *info, char *name, char *str) {
 	Command temp = {};
 	temp.c_size = (temp.c_len = strlen(str)) + 1;
 	temp.c_buf = str;
-	if (commandParse(&temp, NULL, NULL, NULL) != 0) { // TODO: we should parse this earlier, that way if there's an error, and the alias already existed, we don't delete the old one
+	if (commandParse(&temp, NULL, NULL, NULL, NULL) != 0) { // TODO: we should parse this earlier, that way if there's an error, and the alias already existed, we don't delete the old one
 		commandFree(&temp);
 		free(alias->str);
 		free(alias);

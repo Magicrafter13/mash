@@ -105,6 +105,6 @@ size_t varNameLength(char*);
  * Prompt utilities
  */
 
-void printPrompt(Variables*, Source*, struct passwd*, uid_t);
+char *createPrompt(Variables*, Source*, struct passwd*, uid_t);
 
 #endif
