@@ -15,7 +15,7 @@ CFLAGS   =
 CXXFLAGS =
 CPPFLAGS = -c -I$(INCLUDE) -Wall -Werror=implicit-function-declaration -std=c99
 LDFLAGS  =
-LDLIBS   = -lpthread
+LDLIBS   = -pthread
 
 all: $(BUILD) $(DIRS)
 	@$(MAKE) $(BUILD)/$(PROG) --no-print-directory
@@ -30,19 +30,14 @@ clean:
 	@/bin/echo -e '\e[1;32mClean...\e[0m'
 
 install:
-	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
-	@if [ -z "$$DESTDIR" ]; then export DESTDIR=/usr/bin; fi
-	mkdir -p "$$DESTDIR"
-#	$(RM) /usr/bin/mash
-	cp -f mash "$$DESTDIR/mash"
+	mkdir -p "$${DESTDIR-/usr/bin}"
+	cp -f mash "$${DESTDIR-/usr/bin}/mash"
 	@echo "For \`chsh' to allow you to use mash as your shell, you must add it to"
 	@echo "/etc/shells"
-	@echo "Mash has been installed to $$DESTDIR/mash"
+	@echo "Mash has been installed to $${DESTDIR-/usr/bin}/mash"
 
 uninstall:
-	@if [ ! $$UID -eq 0 ]; then echo "Must be run as root."; exit 1; fi
-	@if [ -z "$$DESTDIR" ]; then export DESTDIR=/usr/bin; fi
-	$(RM) "$$DESTDIR/mash"
+	$(RM) "$${DESTDIR-/usr/bin}/mash"
 	@echo "If you modified /etc/shells don't forget to change it back."
 	@echo "Mash has been uninstalled from your system"
 
