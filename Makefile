@@ -44,11 +44,11 @@ uninstall:
 .PHONY: all clean debug install uninstall
 
 $(BUILD)/$(PROG): $(OBJS)
-	$(CC) $(LDLIBS) $^ -o $@
+	$(CC) $^ -o $@ $(LDLIBS)
 
 $(DEBUG)/$(PROG): CPPFLAGS += -g -DDEBUG
 $(DEBUG)/$(PROG): $(D_OBJS)
-	$(CC) $(LDLIBS) $^ -o $@
+	$(CC) $^ -o $@ $(LDLIBS)
 
 $(BUILD)/%.o $(DEBUG)/%.o: $(SOURCE)/%.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $< -o $@

@@ -45,6 +45,19 @@ Not necessarily trying to bring any unique features to the table, I just want to
 
 - More comments
 
+# OS' and Architectures Tested
+
+## x86
+- Manjaro, Arch, Ubuntu (Linux) - no reason to believe others wouldn't work, except for Void (haven't tested musl)
+- macOS - Big Sur (I think), running in a KVM - compatibility.c contains any GNU libc extensions I used that aren't available in the C library included in macOS
+- OpenBSD - 7.0, also in a KVM - Makefile does not work out of the box, presumably due to OpenBSD not shipping with GNU make - compatibility.c may also be required for the same reason as macOS
+
+## ARM
+- Android - via Termux - not the most authentic environment, but as best I can tell it is being natively compiled and executed - compatibility.c also required since Termux ships with bionic libc
+
+## PowerPC
+- Debian, Lubuntu - running on a Wii and Wii U respectively, yes these are my only ppc machines - outside of being out-of-date versions of these OS', mash compiled and ran fine
+
 # Misc
 An idea I had before finding out about `environ`(7):  
 Environment variable dictionary using binary search tree (still store in array, but use this to easily find its location if it exists)
