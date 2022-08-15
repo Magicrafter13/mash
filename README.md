@@ -32,6 +32,9 @@ Not necessarily trying to bring any unique features to the table, I just want to
 
 - For loops
 - Read another line if the line ends with a `\`, then concatenate them together
+- Chain commands together based on exit status with `&&` and `||`
+- Allow for appending to files with `>>` and not just `>`
+- Accept strings as input with `<<<`
 
 ## Behind the Scenes
 
@@ -40,10 +43,15 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Improve syntax error output messages
 - Jobs (should also fix issue with defunct processes resulting from pipes...)
 - Split commandExecute into multiple functions, and use those functions where appropriate to improve performance (subshells don't need to parse aliases because there won't be any!)
+- Output of subshells (`$(...)`), when not in double quotes, should become multiple arguments, not just a single argument - as in, in bash/zsh `for x in $(echo 'hello world'); do "echo $x"; done` will echo hello and world separately, on new lines
+- Consider moving away from stdio FILEs and exclusively using unix file descriptors
 
 ## Code Improvements
 
 - More comments
+
+## Other
+- Create testbed script that runs through as many mash features as possible to verify they still work, or work period on unfamiliar systems
 
 # OS' and Architectures Tested
 
