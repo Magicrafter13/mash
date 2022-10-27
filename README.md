@@ -26,6 +26,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Pipes via `|`
 - Cursor around and edit current command text, via GNU Readline
 - Math statements with `$((...))`, i.e.: `echo $((num * 5))`.
+- Proper handling of SIGINT, so ^C won't kill the shell, it kills the running command. (Currently only programs, won't kill a while loop...)
 
 # TODO
 

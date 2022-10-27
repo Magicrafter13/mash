@@ -15,6 +15,7 @@ size_t cmd_builtin;
 int fds[2];
 
 pid_t cmd_pid = 1; // Don't default to 0 - will cause memory leak
+_Bool killed = 0;
 
 typedef struct _thread_data ThreadData;
 struct _thread_data {
@@ -59,6 +60,14 @@ void *threadOutput(void *ptr) {
 	close(data->write_fd);
 	return NULL;
 }
+
+void kill_child(int sig) {
+	killed = 1;
+	kill(cmd_pid, SIGINT);
+}
+
+struct sigaction sigint_action = { .sa_handler = kill_child };
+struct sigaction previous_action;
 
 CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Variables *vars, FILE **history_pool, uint8_t *cmd_exit) {
 	// Empty/blank command, or skippable command (then, else, do)
@@ -419,6 +428,10 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 			return CSIG_EXIT;
 		}
 
+		// Handle SIGINT to kill the program instead of the shell.
+		killed = 0;
+		sigaction(SIGINT, &sigint_action, &previous_action);
+
 		// If this command is being piped into another
 		if (cmd->c_io.out_pipe) {
 			close(pout[1]);
@@ -481,6 +494,12 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 		// Set exit status (unless we piped, as the next programs exit status is used)
 		if (!cmd->c_io.out_pipe)
 			*cmd_exit = WEXITSTATUS(cmd_stat);
+		if (killed) {
+			sigaction(SIGINT, &previous_action, NULL);
+			fputc('\n', stderr);
+			*cmd_exit = 130; // SIGINT
+			previous_action.sa_handler(SIGINT);
+		}
 		// Return -1 if command was exec
 		if (e_argv[cmd->c_argc] != NULL) {
 			for (size_t i = 0; i < cmd->c_argc - 1; ++i)

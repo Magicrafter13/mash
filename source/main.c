@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pwd.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,8 @@
 #include <unistd.h>
 
 extern char **environ;
+
+void sigint_interactive(int sig) { }
 
 int main(int argc, char *argv[]) {
 	uint8_t cmd_exit = 1;
@@ -50,6 +53,9 @@ int main(int argc, char *argv[]) {
 		FILE *config = open_config(PASSWD, argv[0]);
 		if (config != NULL)
 			source = sourceAdd(source, config, argc, argv);
+		// Setup signal handling to avoid killing the shell.
+		struct sigaction sigint_action = { .sa_handler = sigint_interactive, };
+		sigaction(SIGINT, &sigint_action, NULL);
 	}
 	else {
 		if (argc > 1) {
