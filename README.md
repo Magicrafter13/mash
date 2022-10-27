@@ -25,6 +25,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Set prompt with `$PS1`, supports bash prompt expansion tokens. Also supports `$PROMPT_COMMAND` which if set, will always execute before displaying your prompt (for fancier things like powerline).
 - Pipes via `|`
 - Cursor around and edit current command text, via GNU Readline
+- Math statements with `$((...))`, i.e.: `echo $((num * 5))`.
 
 # TODO
 
@@ -35,6 +36,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Chain commands together based on exit status with `&&` and `||`
 - Allow for appending to files with `>>` and not just `>`
 - Accept strings as input with `<<<`
+- More advanced (recursion) math statement parsing, matching the abilities of other shells.
 
 ## Behind the Scenes
 

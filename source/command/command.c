@@ -177,9 +177,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 				return -1;
 			}
 			if (parse_result) {
+				while_cmd->c_len = cmd->c_len;
 				commandFree(cmd);
 				free(cmd);
-				while_cmd->c_len = cmd->c_len;
 				return 1;
 			}
 			if (cmd->c_buf != while_cmd->c_buf) {
@@ -220,9 +220,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 				return -1;
 			}
 			if (parse_result) {
+				while_cmd->c_len = cmd->c_len;
 				commandFree(cmd);
 				free(cmd);
-				while_cmd->c_len = cmd->c_len;
 				return 1;
 			}
 			if (cmd->c_buf != while_cmd->c_buf) {
@@ -297,9 +297,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 				return -1;
 			}
 			if (parse_result) {
+				if_cmd->c_len = cmd->c_len;
 				commandFree(cmd);
 				free(cmd);
-				if_cmd->c_len = cmd->c_len;
 				return 1;
 			}
 			if (cmd->c_buf != if_cmd->c_buf) {
@@ -340,9 +340,9 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 				return -1;
 			}
 			if (parse_result) {
+				if_cmd->c_len = cmd->c_len;
 				commandFree(cmd);
 				free(cmd);
-				if_cmd->c_len = cmd->c_len;
 				return 1;
 			}
 			if (cmd->c_buf != if_cmd->c_buf) {
@@ -578,6 +578,75 @@ ssize_t lengthRegInDouble(char *buf) {
 	return l;
 }
 
+ssize_t lengthVariable(char *buf) {
+	char c = buf[0];
+	switch (c) {
+		case '0': case '1': case '2': case '3': case '4':
+		case '5': case '6': case '7': case '8': case '9': {
+			size_t l = 0;
+			while (c = buf[++l], c >= '0' && c <= '9');
+			return l;
+		}
+		case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G': case 'H': case 'I': case 'J': case 'K': case 'L': case 'M':
+		case 'N': case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T': case 'U': case 'V': case 'W': case 'X': case 'Y': case 'Z':
+		case '_':
+		case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g': case 'h': case 'i': case 'j': case 'k': case 'l': case 'm':
+		case 'n': case 'o': case 'p': case 'q': case 'r': case 's': case 't': case 'u': case 'v': case 'w': case 'x': case 'y': case 'z':
+			break;
+		case '\0':
+		default:
+			return 0;
+	}
+	size_t l = 0;
+	while (c = buf[++l], c != '\0')
+		if (strchr("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz", c) == NULL)
+			break;
+	return l;
+}
+
+ssize_t lengthMath(char *buf) {
+	ssize_t l = 0;
+	int operator = 0;
+	char c;
+	while (c = buf[l], c != ')') {
+		if (c == '\0')
+			return 0;
+		if (c == ' ') {
+			++l;
+			continue;
+		}
+		if (operator) {
+			switch (c) {
+				case '+':
+				case '-':
+				case '*':
+				case '/':
+				case '%':
+					operator = 0;
+					break;
+				default:
+					return 0;
+			}
+			++l;
+		}
+		else {
+			ssize_t temp;
+			if (c == '(') {
+				++l;
+				temp = lengthMath(&buf[l]);
+				++l;
+			}
+			else
+				temp = lengthVariable(&buf[l]);
+			if (temp == 0)
+				return 0;
+			l += temp;
+			operator = 1;
+		}
+	}
+	return operator ? l : 0; // If expecting an operand, the expression is incomplete
+}
+
 ssize_t lengthDollarExp(char *buf) {
 	if (buf[0] != '$')
 		return 0;
@@ -607,6 +676,24 @@ ssize_t lengthDollarExp(char *buf) {
 						case '"':
 							temp = lengthDoubleQuote(&buf[l]);
 							break;
+						case '(':
+							// $(()) math
+							if (l == 2) {
+								++l;
+								temp = lengthMath(&buf[l]);
+								if (buf[l + temp] != ')')
+									return 0;
+								++l;
+								/*temp = 1;
+								while (c = buf[l + temp], c != ')') { // replace with strchr or whatever?
+									if (c == '\0')
+										return 0;
+									++temp;
+								}
+								if (buf[l + ++temp] != ')')
+									return 0;*/
+							}
+							break;
 					}
 					if (temp == 0)
 						return 0;
@@ -614,7 +701,8 @@ ssize_t lengthDollarExp(char *buf) {
 				}
 				return l + 1;
 			default:
-				if (c >= '0' && c <= '9') {
+				return lengthVariable(&buf[l]) + 1;
+				/*if (c >= '0' && c <= '9') {
 					if (l == 1) {
 						while (c = buf[++l], c >= '0' && c <= '9');
 						return l;
@@ -624,10 +712,82 @@ ssize_t lengthDollarExp(char *buf) {
 					if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_')
 						continue;
 					return l;
-				}
+				}*/
 		}
 	}
 	return l;
+}
+
+CmdArg *parseMath(char *buf, size_t *length) {
+	// go until ) found
+
+	// find number of operands/operators in top expression, by finding (operators * 2 + 1)
+	size_t operators = 0;
+	for (size_t i = 0; buf[i] != ')'; ++i) {
+		switch (buf[i]) {
+			case '+':
+			case '-':
+			case '*':
+			case '/':
+			case '%':
+				++operators;
+				break;
+			case '(':
+				++i;
+				ssize_t temp = lengthMath(&buf[i]);
+				// Assume greater than 0, since validation should have already occured.
+#ifdef DEBUG
+				fprintf(stderr, "lengthMath returned <= 0 from parseMath...\n");
+#endif
+				i += temp;
+				break;
+		}
+	}
+#ifdef DEBUG
+	fprintf(stderr, "Math expression has %lu operators\n", operators);
+#endif
+
+	CmdArg *args = calloc(operators * 2 + 2, sizeof (CmdArg));
+	args[operators * 2 + 1].type = ARG_NULL;
+	// once again, we are assuming everything has already been validated, if validation failed this WILL make mistakes
+	*length = 0;
+	while (buf[*length] == ' ') // skip whitespace
+		++*length;
+	size_t temp = lengthVariable(&buf[*length]);
+	args[0] = (CmdArg){
+		.type = isdigit(buf[*length]) ? ARG_MATH_OPERAND_NUMERIC : ARG_MATH_OPERAND_VARIABLE,
+		.str = strndup(&buf[*length], temp)
+	};
+	*length += temp;
+	for (size_t pair = 0; pair < operators; ++pair) {
+		// construct operator
+		while (buf[*length] == ' ') // skip whitespace
+			++*length;
+		size_t operator_index = pair * 2 + 1; // 1, 3, 5, 7, ...
+		args[operator_index] = (CmdArg) { .type = ARG_MATH_OPERATOR, .str = malloc(sizeof (char)) };
+		args[operator_index].str[0] = buf[(*length)++];
+
+		// construct operand
+		while (buf[*length] == ' ') // skip whitespace
+			++*length;
+		size_t operand_index = operator_index + 1; // 2, 4, 6, 8, ...
+		if (buf[*length] == '(') {
+			args[operand_index] = (CmdArg){ .type = ARG_MATH, .sub = parseMath(&buf[++*length], &temp) };
+			*length += temp + 1;
+		}
+		else {
+			temp = lengthVariable(&buf[*length]);
+			args[operand_index] = (CmdArg){
+				.type = isdigit(buf[*length]) ? ARG_MATH_OPERAND_NUMERIC : ARG_MATH_OPERAND_VARIABLE,
+				.str = strndup(&buf[*length], temp)
+			};
+			*length += temp;
+		}
+	}
+	while (buf[*length] == ' ') // skip whitespace
+		++*length;
+
+	return args;
 }
 
 int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream, AliasMap *aliases, char *PROMPT) {
@@ -809,8 +969,14 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 					new_arg = (CmdArg){ .type = ARG_BASIC_STRING, .str = strdup("$") };
 				}
 				else {
-					if (buf[current + 1] == '(')
-						new_arg = (CmdArg){ .type = inDoubleQuote ? ARG_QUOTED_SUBSHELL : ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
+					if (buf[current + 1] == '(') {
+						if (buf[current + 2] == '(') {
+							size_t dummy;
+							new_arg = (CmdArg){ .type = ARG_MATH, .sub = parseMath(&buf[current + 3], &dummy) };
+						}
+						else
+							new_arg = (CmdArg){ .type = inDoubleQuote ? ARG_QUOTED_SUBSHELL : ARG_SUBSHELL, .str = strndup(&buf[current + 2], dollar_len - 3) };
+					}
 					else
 						new_arg = (CmdArg){ .type = ARG_VARIABLE, .str = strndup(&buf[current + 1], dollar_len - 1) };
 				}
@@ -957,14 +1123,22 @@ CmdArg argdup(CmdArg a) {
 		case ARG_VARIABLE:
 		case ARG_SUBSHELL:
 		case ARG_QUOTED_SUBSHELL:
+		case ARG_MATH_OPERAND_NUMERIC:
+		case ARG_MATH_OPERAND_VARIABLE:
 			return (CmdArg){ .type = a.type, .str = strdup(a.str) };
-		case ARG_COMPLEX_STRING: {
+		case ARG_COMPLEX_STRING:
+		case ARG_MATH: {
 			size_t sub_len = 0;
 			while (a.sub[sub_len++].type != ARG_NULL);
-			CmdArg new_arg = { .type = ARG_COMPLEX_STRING, .sub = calloc(sub_len, sizeof (CmdArg)) };
+			CmdArg new_arg = { .type = a.type, .sub = calloc(sub_len, sizeof (CmdArg)) };
 			for (size_t i = 0; i < sub_len; ++i)
 				new_arg.sub[i] = argdup(a.sub[i]);
 			return new_arg;
+		}
+		case ARG_MATH_OPERATOR: {
+			char *c = malloc(sizeof (char));
+			*c = *a.str;
+			return (CmdArg){ .type = ARG_MATH_OPERATOR, .str = c };
 		}
 		case ARG_NULL:
 			return (CmdArg){ .type = ARG_NULL };
@@ -1014,9 +1188,13 @@ void freeArg(CmdArg a) {
 		case ARG_VARIABLE:
 		case ARG_SUBSHELL:
 		case ARG_QUOTED_SUBSHELL:
+		case ARG_MATH_OPERATOR:
+		case ARG_MATH_OPERAND_NUMERIC:
+		case ARG_MATH_OPERAND_VARIABLE:
 			free(a.str);
 			break;
 		case ARG_COMPLEX_STRING:
+		case ARG_MATH:
 			for (size_t i = 0; a.sub[i].type != ARG_NULL; ++i)
 				freeArg(a.sub[i]);
 			free(a.sub);

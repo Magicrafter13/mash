@@ -494,6 +494,143 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 	return CSIG_DONE;
 }
 
+// Math formula
+typedef struct _math_operand MathOprnd;
+typedef struct _math_operator MathOprtr;
+struct _math_operand {
+	int variable; // false == literal
+	union {
+		long long value;
+		char *name;
+	};
+	struct _math_operator *operator_left;
+	struct _math_operator *operator_right;
+};
+struct _math_operator {
+	char type;
+	struct _math_operand *operand_left;
+	struct _math_operand *operand_right;
+};
+
+long long evaluateMath(CmdArg arg, Variables *vars) {
+	// Allocate space and construct linked list
+	MathOprnd root;
+	if (arg.sub[0].type == ARG_MATH_OPERAND_VARIABLE) {
+		root = (MathOprnd){ .variable = 1, .name = arg.sub[0].str };
+	}
+	else {
+		root = (MathOprnd){ .variable = 0, .operator_left = NULL, .operator_right = NULL };
+		int scanned;
+		if (sscanf(arg.sub[0].str, "%Ld%n", &root.value, &scanned))
+			if (arg.sub[0].str[scanned] != '\0')
+				fprintf(stderr, "asdf: truncated number to %d digits\n", scanned - (arg.sub[0].str[0] == '-' ? 1 : 0));
+	}
+	for (size_t i = 1; arg.sub[i].type != ARG_NULL; i += 2) {
+		MathOprtr *operator = malloc(sizeof (MathOprtr));
+		MathOprnd *operand = malloc(sizeof (MathOprnd));
+		*operator = (MathOprtr){ .type = arg.sub[i].str[0], .operand_left = NULL, .operand_right = operand };
+		if (arg.sub[i + 1].type == ARG_MATH_OPERAND_VARIABLE)
+			*operand = (MathOprnd){ .variable = 1, .name = arg.sub[i + 1].str };
+		else {
+			*operand = (MathOprnd){ .variable = 0, .operator_left = operator, .operator_right = NULL };
+			int scanned;
+			if (sscanf(arg.sub[i + 1].str, "%Ld%n", &operand->value, &scanned))
+				if (arg.sub[i + 1].str[scanned] != '\0')
+					fprintf(stderr, "asdf: truncated number to %d digits\n", scanned - (arg.sub[i + 1].str[0] == '-' ? 1 : 0));
+		}
+		if (i > 1) {
+			operator->operand_left = root.operator_left->operand_right;
+			root.operator_left = operator;
+		}
+		else {
+			operator->operand_left = &root;
+			root.operator_left = root.operator_right = operator;
+		}
+	}
+	MathOprnd *operand = &root;
+	for (;; operand = operand->operator_right->operand_right) {
+		if (operand->variable) {
+			operand->variable = 0;
+			/*if (isdigit(arg.sub[i * 2].str[0])) {
+				unsigned position;
+				sscanf(arg.sub[i * 2].str)
+			}*/
+			if (!strcmp(operand->name, "RANDOM"))
+				operand->value = random();
+			else {
+				long long number = 0;
+				char *value = getvar(vars, operand->name);
+				if (value != NULL) {
+					int scanned;
+					if (sscanf(value, "%Ld%n", &number, &scanned))
+						if (value[scanned] != '\0')
+							number = 0;
+					operand->value = number;
+				}
+			}
+		}
+		if (operand->operator_right == NULL)
+			break;
+	}
+
+	// pe(mdas)
+	MathOprtr *operator = root.operator_right;
+	while (operator != NULL) {
+		switch (operator->type) {
+			case '*':
+				operator->operand_left->value *= operator->operand_right->value;
+				break;
+			case '/':
+				if (operator->operand_right->value == 0) {
+					// divide by zero
+					fputs("divide by zero error\n", stderr);
+					operator = root.operator_right;
+					while (operator != NULL) {
+						MathOprtr *next = operator->operand_right->operator_right;
+						free(operator->operand_right);
+						free(operator);
+						operator = next;
+					}
+					return 0;
+				}
+				operator->operand_left->value /= operator->operand_right->value;
+				break;
+			case '%':
+				operator->operand_left->value %= operator->operand_right->value;
+				break;
+			default:
+				operator = operator->operand_right->operator_right;
+				continue;
+		}
+		MathOprnd *previous = operator->operand_left;
+		previous->operator_right = operator->operand_right->operator_right;
+		free(operator->operand_right);
+		free(operator);
+		operator = previous->operator_right;
+	}
+	operator = root.operator_right;
+	while (operator != NULL) {
+		switch (operator->type) {
+			case '+':
+				operator->operand_left->value += operator->operand_right->value;
+				break;
+			case '-':
+				operator->operand_left->value -= operator->operand_right->value;
+				break;
+			default:
+				operator = operator->operand_right->operator_right;
+				continue;
+		}
+		MathOprnd *previous = operator->operand_left;
+		previous->operator_right = operator->operand_right->operator_right;
+		free(operator->operand_right);
+		free(operator);
+		operator = previous->operator_right;
+	}
+
+	return root.value;
+}
+
 int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint8_t *cmd_exit) {
 	switch (arg.type) {
 		case ARG_BASIC_STRING:
@@ -641,7 +778,23 @@ int expandArgument(char **str, CmdArg arg, Source *source, Variables *vars, uint
 			*str = expanded_string;
 			return 0;
 		}
+		case ARG_MATH: {
+			char number[21];
+			sprintf(number, "%Ld", evaluateMath(arg, vars));
+			*str = strdup(number);
+			return 0;
+			/*size_t sub_count = 1; // operand count
+			while (arg.sub[sub_count].type != ARG_NULL)
+				if (arg.sub[sub_count].type == ARG_OPERATOR)
+					++sub_count;
+			char *sub_argv[sub_count];
+			for (size_t i = 0)
+			return 0;*/
+		}
 		case ARG_NULL:
+		case ARG_MATH_OPERAND_NUMERIC:
+		case ARG_MATH_OPERAND_VARIABLE:
+		case ARG_MATH_OPERATOR:
 		default:
 			*str = NULL;
 			return 0;
