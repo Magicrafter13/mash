@@ -206,6 +206,9 @@ int main(int argc, char *argv[]) {
 			case CSIG_EXIT:
 				brk = 1;
 				break;
+			case CSIG_INT:
+				cmd_exit = 130; // SIGINT
+				break;
 		}
 		if (brk)
 			break;

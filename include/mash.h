@@ -17,7 +17,8 @@ enum _cmd_signal {
 	CSIG_EXIT,
 	CSIG_EXEC,
 	CSIG_CONTINUE,
-	CSIG_BREAK
+	CSIG_BREAK,
+	CSIG_INT
 };
 
 typedef struct _cmd_source Source;

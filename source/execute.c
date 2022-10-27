@@ -73,6 +73,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 	// Empty/blank command, or skippable command (then, else, do)
 	switch (cmd->c_type) {
 		case CMD_WHILE:
+			killed = 0;
 			// Open IO files
 			switch (openIOFiles(&cmd->c_io, *_source, vars, cmd_exit)) {
 				case -1:
@@ -100,6 +101,8 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 							// TODO handle EXEC fail
 						case CSIG_EXIT:
 							return CSIG_EXIT;
+						case CSIG_INT:
+							return CSIG_INT;
 					}
 				}
 				if (cont) {
@@ -125,6 +128,9 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 					case CSIG_EXIT:
 						closeIOFiles(&cmd->c_io);
 						return CSIG_EXIT;
+					case CSIG_INT:
+						closeIOFiles(&cmd->c_io);
+						return CSIG_INT;
 				}
 				if (brk) {
 					*cmd_exit = 0;
@@ -134,6 +140,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 			closeIOFiles(&cmd->c_io);
 			return CSIG_DONE;
 		case CMD_IF:
+			killed = 0;
 			// Open IO files
 			switch (openIOFiles(&cmd->c_io, *_source, vars, cmd_exit)) {
 				case -1:
@@ -160,6 +167,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 						case CSIG_EXIT:
 						case CSIG_CONTINUE:
 						case CSIG_BREAK:
+						case CSIG_INT:
 							closeIOFiles(&cmd->c_io);
 							return res;
 					}
@@ -178,6 +186,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 					case CSIG_EXIT:
 					case CSIG_CONTINUE:
 					case CSIG_BREAK:
+					case CSIG_INT:
 						closeIOFiles(&cmd->c_io);
 						return res;
 				}
@@ -187,6 +196,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 		case CMD_DO:
 		case CMD_THEN:
 		case CMD_ELSE:
+			killed = 0;
 			for (Command *cur = cmd->c_next; cur != NULL; cur = cur->c_next) {
 				CmdSignal res = commandExecute(cur, aliases, _source, vars, history_pool, cmd_exit);
 				switch (res) {
@@ -198,6 +208,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 					case CSIG_EXIT:
 					case CSIG_CONTINUE:
 					case CSIG_BREAK:
+					case CSIG_INT:
 						closeIOFiles(&cur->c_io);
 						return res;
 				}
@@ -209,7 +220,7 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 		case CMD_FI:
 			*cmd_exit = 0;
 		case CMD_EMPTY:
-			return CSIG_DONE;
+			return killed ? CSIG_INT : CSIG_DONE;
 		default:
 			if (cmd->c_argc == 0) // TODO: do we need to check argc...?
 				return CSIG_DONE;
@@ -429,7 +440,6 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 		}
 
 		// Handle SIGINT to kill the program instead of the shell.
-		killed = 0;
 		sigaction(SIGINT, &sigint_action, &previous_action);
 
 		// If this command is being piped into another
@@ -442,6 +452,13 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 			if (fileout != NULL) {
 				if (pipe(fds) == -1) {
 					fprintf(stderr, "%s: fatal error creating pipe: %m\n", source->argv[0]);
+					if (killed) {
+						sigaction(SIGINT, &previous_action, NULL);
+						fputc('\n', stderr);
+						*cmd_exit = 130; // SIGINT
+						previous_action.sa_handler(SIGINT);
+						return CSIG_INT;
+					}
 					return CSIG_EXIT;
 				}
 				data_out = (ThreadData){ .read_fd = pout[0], .write_fd = fds[1], .run = 1, .file = fileout };
@@ -470,6 +487,14 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 				case CSIG_EXIT:
 				case CSIG_CONTINUE:
 				case CSIG_BREAK:
+				case CSIG_INT:
+					if (killed) {
+						sigaction(SIGINT, &previous_action, NULL);
+						fputc('\n', stderr);
+						*cmd_exit = 130; // SIGINT
+						previous_action.sa_handler(SIGINT);
+						return CSIG_INT;
+					}
 					return res;
 			}
 		}
@@ -505,12 +530,12 @@ CmdSignal commandExecute(Command *cmd, AliasMap *aliases, Source **_source, Vari
 			for (size_t i = 0; i < cmd->c_argc - 1; ++i)
 				free(e_argv[i]);
 			free(e_argv[cmd->c_argc]);
-			return CSIG_EXIT;
+			return killed ? CSIG_INT : CSIG_EXIT;
 		}
 	}
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		free(e_argv[i]);
-	return CSIG_DONE;
+	return killed ? CSIG_INT : CSIG_DONE;
 }
 
 // Math formula
