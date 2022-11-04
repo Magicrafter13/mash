@@ -45,11 +45,18 @@ struct _arg {
 	};
 };
 
+// Command IO files
+typedef struct _cmd_io_file CmdIOFile;
+struct _cmd_io_file {
+	CmdArg arg;
+	_Bool alternate;
+};
+
 // Command IO data
 typedef struct _cmd_io CmdIO;
 struct _cmd_io {
 	size_t in_count, out_count;
-	CmdArg *in_arg, *out_arg;
+	CmdIOFile *in, *out;
 	FILE *in_file, **out_file;
 	_Bool in_pipe, out_pipe;
 };

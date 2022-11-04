@@ -21,7 +21,7 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - Environment and shell variables with `$varname`
 - Run single command with `-c command`
 - Subshells with `$(command)` - if inside double quotes, you will get the exact output contents (otherwise it is tokenized)
-- Redirection (`<` and `>`)
+- Redirection. Input with `<` and `<<<` (file and string literal), and output with `>` and `>>` (overwrite and append).
 - Set prompt with `$PS1`, supports bash prompt expansion tokens. Also supports `$PROMPT_COMMAND` which if set, will always execute before displaying your prompt (for fancier things like powerline).
 - Pipes via `|`
 - Cursor around and edit current command text, via GNU Readline
@@ -35,10 +35,9 @@ Not necessarily trying to bring any unique features to the table, I just want to
 - For loops
 - Read another line if the line ends with a `\`, then concatenate them together
 - Chain commands together based on exit status with `&&` and `||`
-- Allow for appending to files with `>>` and not just `>`
-- Accept strings as input with `<<<`
 - More advanced (recursion) math statement parsing, matching the abilities of other shells.
 - Does not error when an `if ...` statement is entered with no `then`... I swear it used to do this.
+- When the command parser gets an error, don't just print the location, print a reason (I see a new enum in our future...).
 
 ## Behind the Scenes
 

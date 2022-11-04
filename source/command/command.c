@@ -376,18 +376,18 @@ int parseMultiline(Command *cmd, FILE *restrict istream, FILE *restrict ostream,
 }
 
 void freeCmdIO(CmdIO *io) {
-	if (io->in_arg != NULL) {
+	if (io->in != NULL) {
 		for (size_t i = 0; i < io->in_count; ++i)
-			freeArg(io->in_arg[i]);
-		free(io->in_arg);
-		io->in_arg = NULL;
+			freeArg(io->in[i].arg);
+		free(io->in);
+		io->in = NULL;
 	}
 	io->in_count = 0;
-	if (io->out_arg != NULL) {
+	if (io->out != NULL) {
 		for (size_t i = 0; i < io->out_count; ++i)
-			freeArg(io->out_arg[i]);
-		free(io->out_arg);
-		io->out_arg = NULL;
+			freeArg(io->out[i].arg);
+		free(io->out);
+		io->out = NULL;
 	}
 	io->out_count = 0;
 }
@@ -415,8 +415,8 @@ Command *commandInit() {
 		.c_io = (CmdIO){
 			.in_count = 0,
 			.out_count = 0,
-			.in_arg = NULL,
-			.out_arg = NULL,
+			.in = NULL,
+			.out = NULL,
 			.in_file = NULL,
 			.out_file = NULL
 		}
@@ -684,14 +684,6 @@ ssize_t lengthDollarExp(char *buf) {
 								if (buf[l + temp] != ')')
 									return 0;
 								++l;
-								/*temp = 1;
-								while (c = buf[l + temp], c != ')') { // replace with strchr or whatever?
-									if (c == '\0')
-										return 0;
-									++temp;
-								}
-								if (buf[l + ++temp] != ')')
-									return 0;*/
 							}
 							break;
 					}
@@ -702,17 +694,6 @@ ssize_t lengthDollarExp(char *buf) {
 				return l + 1;
 			default:
 				return lengthVariable(&buf[l]) + 1;
-				/*if (c >= '0' && c <= '9') {
-					if (l == 1) {
-						while (c = buf[++l], c >= '0' && c <= '9');
-						return l;
-					}
-				}
-				else {
-					if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_')
-						continue;
-					return l;
-				}*/
 		}
 	}
 	return l;
@@ -852,8 +833,6 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 
 				switch (buf[end + 1]) {
 					case ';':
-					case '<':
-					case '>':
 						++end;
 					case '\n':
 					case '\0':
@@ -862,6 +841,61 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 					case ' ':
 					case '\t':
 						need_file = 1;
+						break;
+					case '<':
+						// Make sure they match
+						if (buf[end] != buf[end + 1]) {
+							cmd->c_len = end + 1;
+							return -1;
+						}
+						++end;
+						if (buf[end + 1] != '<') {
+							cmd->c_len = ++end;
+							return -1;
+						}
+						++end;
+						switch (buf[end + 1]) {
+							case ';':
+							case '<':
+							case '>':
+								++end;
+							case '\n':
+							case '\0':
+								cmd->c_len = end;
+								return -1;
+							case ' ':
+							case '\t':
+								need_file = 1;
+								break;
+							default:
+								--argc;
+								break;
+						}
+						break;
+					case '>':
+						// Make sure they match
+						if (buf[end] != buf[end + 1]) {
+							cmd->c_len = end + 1;
+							return -1;
+						}
+						++end;
+						switch (buf[end + 1]) {
+							case ';':
+							case '<':
+							case '>':
+								++end;
+							case '\n':
+							case '\0':
+								cmd->c_len = end;
+								return -1;
+							case ' ':
+							case '\t':
+								need_file = 1;
+								break;
+							default:
+								--argc;
+								break;
+						}
 						break;
 					default:
 						--argc;
@@ -919,14 +953,14 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 	for (size_t i = 0; i < cmd->c_argc; ++i)
 		cmd->c_argv[i].type = ARG_NULL;
 	if (cmd->c_io.in_count) {
-		cmd->c_io.in_arg = calloc(cmd->c_io.in_count, sizeof (CmdArg));
+		cmd->c_io.in = calloc(cmd->c_io.in_count, sizeof (CmdIOFile));
 		for (size_t i = 0; i < cmd->c_io.in_count; ++i)
-			cmd->c_io.in_arg[i].type = ARG_NULL;
+			cmd->c_io.in[i] = (CmdIOFile){ .arg = { .type = ARG_NULL }, .alternate = 0 };
 	}
 	if (cmd->c_io.out_count) {
-		cmd->c_io.out_arg = calloc(cmd->c_io.out_count, sizeof (CmdArg));
+		cmd->c_io.out = calloc(cmd->c_io.out_count, sizeof (CmdIOFile));
 		for (size_t i = 0; i < cmd->c_io.out_count; ++i)
-			cmd->c_io.out_arg[i].type = ARG_NULL;
+			cmd->c_io.out[i] = (CmdIOFile){ .arg = { .type = ARG_NULL }, .alternate = 0 };
 	}
 
 	// Parse and set each argument structure
@@ -935,7 +969,7 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 	for (size_t current = 0; current < end; ++current) {
 		_Bool parse_regular = 0;
 		CmdArg *cur_arg = need_file
-			? (need_input ? &cmd->c_io.in_arg[input_count] : &cmd->c_io.out_arg[output_count])
+			? (need_input ? &cmd->c_io.in[input_count].arg : &cmd->c_io.out[output_count].arg)
 			: &cmd->c_argv[argc], new_arg = { .type = ARG_NULL };
 		switch (buf[current]) {
 			case '\'': {
@@ -990,12 +1024,18 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 					parse_regular = 1;
 				break;
 			case '<':
+				// Boy, I sure wish I had left a comment when I wrote this :)
 				if (!inDoubleQuote) {
 					if ((argc < cmd->c_argc || need_file) && cur_arg->type != ARG_NULL) {
 						if (need_file)
 							need_input ? ++input_count : ++output_count;
 						else
 							++argc;
+					}
+					if (buf[current + 1] == '<') {
+						// Mark this "file" as a string literal.
+						cmd->c_io.in[input_count].alternate = 1;
+						current += 2;
 					}
 					need_file = 1;
 					need_input = 1;
@@ -1010,6 +1050,11 @@ int commandTokenize(Command *cmd, FILE *restrict istream, FILE *restrict ostream
 							need_input ? ++input_count : ++output_count;
 						else
 							++argc;
+					}
+					if (buf[current + 1] == '>') {
+						// Mark this file as one to append to instead of overwrite.
+						cmd->c_io.out[output_count].alternate = 1;
+						++current;
 					}
 					need_file = 1;
 					need_input = 0;

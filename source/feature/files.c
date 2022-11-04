@@ -124,32 +124,44 @@ int openInputFiles(CmdIO *io, Source *source, Variables *vars, uint8_t *cmd_exit
 	io->in_file = tmpfile();
 	_Bool error = 0;
 	for (size_t i = 0; i < io->in_count; ++i) {
-		// Get filename (path)
-		char *ipath;
-		if (expandArgument(&ipath, io->in_arg[i], source, vars, cmd_exit) == -1)
-			return -1; // Child process with error
-		if (ipath == NULL) {
-			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
-			error = 1;
-			break;
+		// Input is literal string
+		if (io->in[i].alternate) {
+			char *string;
+			if (expandArgument(&string, io->in[i].arg, source, vars, cmd_exit) == -1)
+				return -1;
+			fwrite(string, sizeof (char), strlen(io->in[i].arg.str), io->in_file);
+			free(string);
+			fwrite("\n", sizeof (char), 1, io->in_file);
 		}
+		// Input is real file
+		else {
+			// Get filename (path)
+			char *ipath;
+			if (expandArgument(&ipath, io->in[i].arg, source, vars, cmd_exit) == -1)
+				return -1; // Child process with error
+			if (ipath == NULL) {
+				fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
+				error = 1;
+				break;
+			}
 
-		// Open file
-		FILE *ifile = fopen(ipath, "r");
-		if (ifile == NULL) {
-			fprintf(stderr, "%s: %m: %s\n", source->argv[0], ipath);
+			// Open file
+			FILE *ifile = fopen(ipath, "r");
+			if (ifile == NULL) {
+				fprintf(stderr, "%s: %m: %s\n", source->argv[0], ipath);
+				free(ipath);
+				error = 1;
+				break;
+			}
 			free(ipath);
-			error = 1;
-			break;
-		}
-		free(ipath);
 
-		// Copy contents to temporary file
-		char buffer[TMP_RW_BUFSIZE];
-		size_t bytes_read;
-		while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, ifile), bytes_read != 0)
-			fwrite(buffer, sizeof (char), bytes_read, io->in_file);
-		fclose(ifile);
+			// Copy contents to temporary file
+			char buffer[TMP_RW_BUFSIZE];
+			size_t bytes_read;
+			while (bytes_read = fread(buffer, sizeof (char), TMP_RW_BUFSIZE, ifile), bytes_read != 0)
+				fwrite(buffer, sizeof (char), bytes_read, io->in_file);
+			fclose(ifile);
+		}
 	}
 	rewind(io->in_file);
 	if (error) {
@@ -168,7 +180,7 @@ int openOutputFiles(CmdIO *io, Source *source, Variables *vars, uint8_t *cmd_exi
 	for (i = 0; i < io->out_count; ++i) {
 		// Get filename (path)
 		char *opath;
-		if (expandArgument(&opath, io->out_arg[i], source, vars, cmd_exit) == -1)
+		if (expandArgument(&opath, io->out[i].arg, source, vars, cmd_exit) == -1)
 			return -1; // Child process with error
 		if (opath == NULL) {
 			fprintf(stderr, "%s: error expanding argument, possibly related error message: %m\n", source->argv[0]);
@@ -177,7 +189,7 @@ int openOutputFiles(CmdIO *io, Source *source, Variables *vars, uint8_t *cmd_exi
 		}
 
 		// Open file
-		FILE *ofile = fopen(opath, "w");
+		FILE *ofile = fopen(opath, io->out[i].alternate ? "a" : "w");
 		if (ofile == NULL) {
 			fprintf(stderr, "%s: %m: %s\n", source->argv[0], opath);
 			free(opath);
