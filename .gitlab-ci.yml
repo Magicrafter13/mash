@@ -3,7 +3,7 @@ build-mash:
   image: debian:latest
   before_script:
     - apt-get update
-    - apt-get install -y libreadline-dev
+    - apt-get install -y build-essential libreadline-dev
   script:
     - make
   artifacts:
