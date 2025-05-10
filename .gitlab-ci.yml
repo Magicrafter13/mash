@@ -9,4 +9,8 @@ build-mash:
   artifacts:
     paths:
       - build/mash
-    #expire_in: 1 week
+  rules:
+    - if '$CI_COMMIT_BRANCH && $CI_SERVER_HOST == "gitlab.matthewrease.net"'
+      when: always
+  tags:
+    - docker
