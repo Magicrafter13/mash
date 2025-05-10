@@ -10,7 +10,7 @@ build-mash:
     paths:
       - build/mash
   rules:
-    - if '$CI_COMMIT_BRANCH && $CI_SERVER_HOST == "gitlab.matthewrease.net"'
+    - if: '$CI_COMMIT_BRANCH && $CI_SERVER_HOST == "gitlab.matthewrease.net"'
       when: always
   tags:
     - docker
