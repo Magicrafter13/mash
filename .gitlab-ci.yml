@@ -1,6 +1,6 @@
 build-mash:
   stage: build
-  image: gcc:latest
+  image: debian:latest
   before_script:
     - apt-get update
     - apt-get install -y libreadline-dev
